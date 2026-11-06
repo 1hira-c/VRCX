@@ -3227,6 +3227,7 @@
             "logout_title": "VRChatからログアウトしますか？",
             "logout_description": "現在のVRChatセッションを終了してログイン画面へ戻ります。VRCX Webの管理者セッションは維持されます。",
             "status_tooltip": "VRChat: {status}。クリックして再認証します。",
+            "avatar_provider_partial_failure": "一部のアバタープロバイダから取得できませんでした。取得できたプロバイダの結果を表示しています。",
             "worker_unavailable_title": "常駐VRCXへ再接続しています",
             "worker_unavailable_description": "常駐処理に一時的に接続できず、認証状態を確認できていません。保存済みの履歴は維持されています。再接続中にログインし直す必要はありません。",
             "worker_check_failed_title": "常駐VRCXの状態を確認できませんでした",

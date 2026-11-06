@@ -10,6 +10,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="NLog" Version="6.2.2" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>
@@ -19,5 +22,11 @@
 
   <ItemGroup>
     <ProjectReference Include="../../Dotnet/VRCX.Transport/VRCX.Transport.csproj" />
+    <Compile Include="../../Dotnet/WebApi.cs" Link="WebApi.cs" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8622;SYSLIB0014</NoWarn>
+  </PropertyGroup>
 </Project>

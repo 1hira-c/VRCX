@@ -41,6 +41,8 @@ namespace VRCX
         private HttpClient _httpClient;
         private SocketsHttpHandler _httpHandler;
         private ServerCookieProtector _serverCookieProtector;
+        private readonly object _serverCookieSyncRoot = new object();
+        private bool _serverCookieStoreClosed;
 
         static WebApi()
         {
@@ -144,9 +146,29 @@ namespace VRCX
 
         public void Exit()
         {
+            if (StartupArgs.LaunchArguments.IsServerMode)
+            {
+                // Stopping a timer alone does not wait for an in-progress save.
+                // Finish its callbacks before the final snapshot and key disposal.
+                _timer.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                lock (_serverCookieSyncRoot)
+                {
+                    if (_serverCookieStoreClosed)
+                        return;
+                    try
+                    {
+                        SaveCookiesCore();
+                    }
+                    finally
+                    {
+                        _serverCookieStoreClosed = true;
+                        _serverCookieProtector?.Dispose();
+                    }
+                }
+                return;
+            }
             _timer.Change(-1, -1);
             SaveCookies();
-            _serverCookieProtector?.Dispose();
         }
 
         public void ClearCookies()
@@ -156,7 +178,7 @@ namespace VRCX
 #endif
             CookieContainer = new CookieContainer();
             InitializeHttpClient();
-            _cookieDirty = true;
+            MarkCookiesDirty();
             SaveCookies();
         }
 
@@ -246,6 +268,34 @@ namespace VRCX
 
         public void SaveCookies()
         {
+            if (StartupArgs.LaunchArguments.IsServerMode)
+            {
+                lock (_serverCookieSyncRoot)
+                {
+                    if (!_serverCookieStoreClosed)
+                        SaveCookiesCore();
+                }
+                return;
+            }
+            SaveCookiesCore();
+        }
+
+        private void MarkCookiesDirty()
+        {
+            if (StartupArgs.LaunchArguments.IsServerMode)
+            {
+                lock (_serverCookieSyncRoot)
+                {
+                    if (!_serverCookieStoreClosed)
+                        _cookieDirty = true;
+                }
+                return;
+            }
+            _cookieDirty = true;
+        }
+
+        private void SaveCookiesCore()
+        {
             if (!_cookieDirty)
                 return;
 
@@ -289,7 +339,7 @@ namespace VRCX
 
         public string GetCookies()
         {
-            _cookieDirty = true; // force cookies to be saved for lastUserLoggedIn
+            MarkCookiesDirty(); // force cookies to be saved for lastUserLoggedIn
 
             using var memoryStream = new MemoryStream();
             System.Text.Json.JsonSerializer.Serialize(memoryStream, GetAllCookies());
@@ -312,7 +362,7 @@ namespace VRCX
                     Logger.Error($"Failed to set cookies: {e.Message}");
             }
 
-            _cookieDirty = true; // force cookies to be saved for lastUserLoggedIn
+            MarkCookiesDirty(); // force cookies to be saved for lastUserLoggedIn
         }
 
         private async Task<HttpRequestMessage> BuildLegacyImageUploadRequest(string url, IDictionary<string, object> options)
@@ -513,7 +563,7 @@ namespace VRCX
 
                 // Check if cookies were modified
                 if (response.Headers.Contains("Set-Cookie"))
-                    _cookieDirty = true;
+                    MarkCookiesDirty();
 
                 var contentTypeResponse = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
 

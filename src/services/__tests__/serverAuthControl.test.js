@@ -2,7 +2,12 @@ import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { createServerAuthControl, normalizeRendererResponse } = require('../../../src-electron/serverAuthControl.js');
+const {
+    createServerAuthControl,
+    normalizeRendererResponse,
+    normalizeSearchResponse,
+    normalizeEntityResourceResponse
+} = require('../../../src-electron/serverAuthControl.js');
 
 let control;
 
@@ -340,6 +345,60 @@ describe('server auth control', () => {
         expect(invalidResult.status).toBe(500);
         expect(responseBody.errorCode).toBe('internal_error');
         expect(JSON.stringify(responseBody)).not.toContain('secret');
+    });
+
+    it('allows the complete bounded avatar search without widening other entity search limits', async () => {
+        const searchResponse = { ok: true, items: [], total: 0, offset: 0, limit: 5_000, errorCode: null };
+        const { baseUrl, dispatch } = await start({ dispatch: vi.fn(() => searchResponse) });
+        const request = { type: 'avatar', query: 'name', offset: 0, limit: 5_000, options: {} };
+        const post = (payload) =>
+            fetch(baseUrl + '/control/v1/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+        const avatarResult = await post(request);
+        expect(avatarResult.status).toBe(200);
+        expect(await avatarResult.json()).toEqual(searchResponse);
+        expect((await post({ ...request, type: 'user' })).status).toBe(400);
+        expect((await post({ ...request, limit: 5_001 })).status).toBe(400);
+        expect(dispatch).toHaveBeenCalledTimes(1);
+        expect(normalizeSearchResponse(searchResponse, 'avatar')).toEqual(searchResponse);
+        expect(() => normalizeSearchResponse(searchResponse, 'user')).toThrow('Invalid renderer search response');
+    });
+
+    it('allows a large one-shot author result while keeping other resource byte bounds', async () => {
+        const avatars = Array.from({ length: 500 }, (_, i) => ({ id: `avtr_${i}`, description: 'a'.repeat(5_000) }));
+        const remoteResponse = { ok: true, result: { items: avatars, warningCode: null }, errorCode: null };
+        expect(Buffer.byteLength(JSON.stringify(remoteResponse))).toBeGreaterThan(2 * 1024 * 1024);
+        const { baseUrl, dispatch } = await start({ dispatch: vi.fn(() => remoteResponse) });
+        const post = (name, args) =>
+            fetch(baseUrl + '/control/v1/entity-resource', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, arguments: args })
+            });
+
+        const remote = await post('userRemoteAvatars', { userId: 'usr_author' });
+        expect(remote.status).toBe(200);
+        expect((await remote.json()).result.items).toHaveLength(500);
+        expect(dispatch).toHaveBeenCalledWith({
+            operation: 'entity-resource',
+            payload: { name: 'userRemoteAvatars', arguments: { userId: 'usr_author' } }
+        });
+        expect((await post('userRemoteAvatars', { userId: 'usr_author', n: 100, offset: 0 })).status).toBe(400);
+        expect((await post('userGroups', { userId: 'usr_author' })).status).toBe(500);
+        expect(() =>
+            normalizeEntityResourceResponse(
+                {
+                    ok: true,
+                    result: { items: Array.from({ length: 5_001 }, () => ({})), warningCode: null },
+                    errorCode: null
+                },
+                'userRemoteAvatars'
+            )
+        ).toThrow('Invalid renderer entity-resource response');
     });
 
     it('forwards only exact entity resources and rejects recursive secrets in their response', async () => {

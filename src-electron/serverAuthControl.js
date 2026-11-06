@@ -10,6 +10,7 @@ const CONTROL_HOST = '127.0.0.1';
 const CONTROL_PORT = 18081;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_AVATAR_LIST_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_DATABASE_READ_RESPONSE_BYTES = 64 * 1024 * 1024;
 const VALID_STATUSES = new Set(['requires_authentication', 'authenticating', 'two_factor_required', 'authenticated']);
 const VALID_TWO_FACTOR_KINDS = new Set(['totp', 'otp', 'emailOtp']);
@@ -296,7 +297,7 @@ function validatePayload(route, payload) {
             payload.offset > 10_000 ||
             !Number.isInteger(payload.limit) ||
             payload.limit < 1 ||
-            payload.limit > 200
+            payload.limit > (payload.type === 'avatar' ? 5_000 : 200)
         ) {
             return null;
         }
@@ -427,7 +428,7 @@ function normalizeSearchResponse(value, expectedType) {
         value.offset > 10_000 ||
         !Number.isInteger(value.limit) ||
         value.limit < 1 ||
-        value.limit > 200 ||
+        value.limit > (expectedType === 'avatar' ? 5_000 : 200) ||
         value.items.length > value.limit
     ) {
         throw new Error('Invalid renderer search response');
@@ -460,7 +461,7 @@ function normalizeEntityResponse(value, expectedType) {
     };
 }
 
-function normalizeEntityResourceResponse(value) {
+function normalizeEntityResourceResponse(value, resourceName) {
     if (!hasExactFields(value, ['ok', 'result', 'errorCode'])) {
         throw new Error('Invalid renderer entity-resource response');
     }
@@ -470,6 +471,13 @@ function normalizeEntityResourceResponse(value) {
         (value.ok
             ? value.errorCode !== null || value.result === null || value.result === undefined
             : value.errorCode === null || value.result !== null) ||
+        (resourceName === 'userRemoteAvatars' &&
+            value.ok &&
+            (!hasExactFields(value.result, ['items', 'warningCode']) ||
+                !Array.isArray(value.result.items) ||
+                value.result.items.length > 5_000 ||
+                (value.result.warningCode !== null &&
+                    value.result.warningCode !== 'avatar_provider_partial_failure'))) ||
         containsSensitiveKey(value.result)
     ) {
         throw new Error('Invalid renderer entity-resource response');
@@ -797,7 +805,7 @@ function createServerAuthControl({
                     : route.operation === 'entity'
                       ? normalizeEntityResponse(rawResponse, payload.type)
                       : route.operation === 'entity-resource'
-                        ? normalizeEntityResourceResponse(rawResponse)
+                        ? normalizeEntityResourceResponse(rawResponse, payload.name)
                         : route.operation === 'database-read'
                           ? normalizeDatabaseReadResponse(rawResponse, payload.name, payload.arguments)
                           : normalizeRendererResponse(rawResponse);
@@ -806,7 +814,12 @@ function createServerAuthControl({
                 response,
                 statusCode,
                 rendererResponse,
-                route.operation === 'database-read' ? MAX_DATABASE_READ_RESPONSE_BYTES : MAX_RESPONSE_BYTES
+                route.operation === 'database-read'
+                    ? MAX_DATABASE_READ_RESPONSE_BYTES
+                    : (route.operation === 'search' && payload.type === 'avatar') ||
+                        (route.operation === 'entity-resource' && payload.name === 'userRemoteAvatars')
+                      ? MAX_AVATAR_LIST_RESPONSE_BYTES
+                      : MAX_RESPONSE_BYTES
             );
         } catch (error) {
             if (error?.code === 'renderer_timeout') {

@@ -394,8 +394,20 @@ async function getResource(stores, payload) {
             if (args.userId !== stores.user.currentUser.id) throw Object.assign(new Error(), { code: 'wrong_user' });
             return (await avatarRequest.getLicensedAvatars({ n: args.n, offset: args.offset })).json.map(selectAvatar);
         case 'userRemoteAvatars': {
-            const avatars = Array.from((await lookupAvatars('authorId', args.userId)).values());
-            return avatars.slice(args.offset, args.offset + args.n).map(selectAvatar);
+            let warningCode = null;
+            const avatars = Array.from(
+                (
+                    await lookupAvatars('authorId', args.userId, {
+                        onPartialFailure: () => {
+                            warningCode = 'avatar_provider_partial_failure';
+                        }
+                    })
+                ).values()
+            );
+            if (avatars.length > 5_000) {
+                throw Object.assign(new Error(), { code: 'avatar_remote_database_limit_exceeded' });
+            }
+            return { items: avatars.map(selectAvatar), warningCode };
         }
         case 'groupPosts': {
             const response = (await groupRequest.getGroupPosts(args)).json;

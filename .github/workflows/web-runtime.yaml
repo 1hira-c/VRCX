@@ -39,8 +39,17 @@ jobs:
           npm test -- src/web
           src/services/__tests__/runtimeCapabilities.test.js
           src/services/__tests__/server*.test.js
+          src/services/__tests__/requestAuthenticationExpiry.test.js
           src/shared/utils/base/__tests__/uiNativeBoundary.test.js
           src/stores/__tests__/vrcxServerDatabaseStartup.test.js
+          src/stores/__tests__/authLoginFailureToast.test.js
+          src/stores/__tests__/vrcxUpdaterServerId.test.js
+          src/stores/__tests__/vrcxUpdater.test.js
+          src/coordinators/__tests__/avatarCoordinatorRemoteLookup.test.js
+          src/api/__tests__/queryRequest.test.js
+          src/queries/__tests__/entityCache.test.js
+          src/views/Search/composables/__tests__/useSearchAvatar.test.js
+          src/components/dialogs/UserDialog/__tests__/UserDialogAvatarsRemote.test.js
       - name: Test cookie protection
         run: dotnet test tests/VRCX.Transport.Tests/VRCX.Transport.Tests.csproj --configuration Release -p:Platform=x64 --runtime linux-x64
       - name: Test administrator sessions and pairing

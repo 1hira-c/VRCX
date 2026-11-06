@@ -404,10 +404,6 @@ export const useAppearanceSettingsStore = defineStore(
             let dictObject = null;
             if (typeof customFunc === 'function') {
                 dictObject = customFunc(userStore.cachedUsers.keys());
-            } else if (isWebPlatform) {
-                // The desktop colour service is unavailable in the browser.
-                // Trust colours remain available through applyUserTrustLevel.
-                return;
             } else {
                 dictObject = await AppApi.GetColourBulk(Array.from(userStore.cachedUsers.keys()));
             }

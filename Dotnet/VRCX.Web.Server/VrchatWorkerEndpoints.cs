@@ -4,6 +4,7 @@ internal static class VrchatWorkerEndpoints
 {
     public const string RateLimitPolicy = "vrchat-worker-auth";
     public const string StatusRateLimitPolicy = "vrchat-worker-status";
+    public const string ReadRateLimitPolicy = "vrchat-worker-read";
 
     private const int MaximumUsernameLength = 256;
     private const int MaximumPasswordLength = 1024;

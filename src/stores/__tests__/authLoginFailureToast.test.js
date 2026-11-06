@@ -27,6 +27,14 @@ const mocks = vi.hoisted(() => ({
     runHandleAutoLoginFlow: vi.fn(),
     getCurrentUser: vi.fn(),
     initWebsocket: vi.fn(),
+    closeWebSocket: vi.fn(),
+    queryClient: { clear: vi.fn() },
+    notificationStore: { setNotificationInitStatus: vi.fn() },
+    runtimeCapabilities: {
+        serverMode: false,
+        desktopIntegration: true,
+        gameProcessMonitoring: true
+    },
     advancedSettingsStore: {
         enablePrimaryPassword: false,
         setEnablePrimaryPassword: vi.fn(),
@@ -160,7 +168,19 @@ vi.mock('../../services/config', () => ({
 
 vi.mock('../../services/websocket', () => ({
     initWebsocket: (...args) => mocks.initWebsocket(...args),
-    closeWebSocket: vi.fn()
+    closeWebSocket: (...args) => mocks.closeWebSocket(...args)
+}));
+
+vi.mock('../../services/runtimeCapabilities', () => ({
+    runtimeCapabilities: mocks.runtimeCapabilities
+}));
+
+vi.mock('../../queries', () => ({
+    queryClient: mocks.queryClient
+}));
+
+vi.mock('../../stores/notification', () => ({
+    useNotificationStore: () => mocks.notificationStore
 }));
 
 vi.mock('../../stores/settings/advanced', () => ({
@@ -276,6 +296,7 @@ describe('useAuthStore login failure toast policy', () => {
         mocks.toast.info.mockReset();
         mocks.toast.dismiss.mockReset();
         mocks.advancedSettingsStore.enablePrimaryPassword = false;
+        mocks.runtimeCapabilities.serverMode = false;
         mockWatchState.isLoggedIn = false;
         mockWatchState.isFriendsLoaded = false;
         mockWatchState.isFavoritesLoaded = false;
@@ -377,6 +398,62 @@ describe('useAuthStore login failure toast policy', () => {
 
         expect(mocks.toast.warning).not.toHaveBeenCalled();
         expect(mocks.runHandleAutoLoginFlow).not.toHaveBeenCalled();
+    });
+
+    test('expires the server cookie session through the original logout flow without saved passwords', async () => {
+        mocks.runtimeCapabilities.serverMode = true;
+        const store = await createAuthStore();
+        const { runLogoutFlow } = await vi.importActual('../../coordinators/authCoordinator');
+        mocks.runLogoutFlow.mockImplementation(runLogoutFlow);
+        mockWatchState.isLoggedIn = true;
+        mockWatchState.isFriendsLoaded = true;
+        mockWatchState.isFavoritesLoaded = true;
+        store.loginForm.lastUserLoggedIn = 'usr_me';
+        store.autoLoginAttempts.add(Date.now());
+        mocks.configRepository.getString.mockClear();
+
+        // request() invokes this for a 401 Missing Credentials response.
+        await Promise.all([store.handleAutoLogin(), store.handleAutoLogin()]);
+
+        expect(mockWatchState.isLoggedIn).toBe(false);
+        expect(mockWatchState.isFriendsLoaded).toBe(false);
+        expect(mockWatchState.isFavoritesLoaded).toBe(false);
+        expect(mocks.runLogoutFlow).toHaveBeenCalledTimes(1);
+        expect(mocks.webApiService.clearCookies).toHaveBeenCalledTimes(1);
+        expect(mocks.closeWebSocket).toHaveBeenCalledTimes(1);
+        expect(mocks.queryClient.clear).toHaveBeenCalledTimes(1);
+        expect(mocks.notificationStore.setNotificationInitStatus).toHaveBeenCalledWith(false);
+        expect(mocks.configRepository.remove).toHaveBeenCalledWith('lastUserLoggedIn');
+        expect(store.loginForm.lastUserLoggedIn).toBe('');
+        expect(store.attemptingAutoLogin).toBe(false);
+        expect(store.autoLoginAttempts.size).toBe(0);
+        expect(mocks.runHandleAutoLoginFlow).not.toHaveBeenCalled();
+        expect(mocks.configRepository.getString).not.toHaveBeenCalledWith('savedCredentials', expect.anything());
+        expect(mocks.request).not.toHaveBeenCalled();
+    });
+
+    test('keeps the desktop saved-account auto-login flow', async () => {
+        const store = await createAuthStore();
+        mockWatchState.isLoggedIn = true;
+
+        await store.handleAutoLogin();
+
+        expect(mocks.runHandleAutoLoginFlow).toHaveBeenCalledTimes(1);
+        expect(mocks.runLogoutFlow).not.toHaveBeenCalled();
+        expect(mockWatchState.isLoggedIn).toBe(true);
+    });
+
+    test.each([false, true])('preserves a server 2FA challenge when isLoggedIn is %s', async (isLoggedIn) => {
+        mocks.runtimeCapabilities.serverMode = true;
+        const store = await createAuthStore();
+        mockWatchState.isLoggedIn = isLoggedIn;
+        store.serverAuthChallenge = { kinds: ['totp'] };
+
+        await store.handleAutoLogin();
+
+        expect(mocks.runLogoutFlow).not.toHaveBeenCalled();
+        expect(mocks.runHandleAutoLoginFlow).not.toHaveBeenCalled();
+        expect(store.serverAuthChallenge).toEqual({ kinds: ['totp'] });
     });
 
     test('counts saved-account relogin failures together with manual login failures', async () => {

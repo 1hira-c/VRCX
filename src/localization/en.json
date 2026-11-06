@@ -3671,6 +3671,7 @@
             "logout_title": "Log out of VRChat?",
             "logout_description": "End the current VRChat session and return to the login screen. The VRCX Web administrator session remains signed in.",
             "status_tooltip": "VRChat: {status}. Click to reauthenticate.",
+            "avatar_provider_partial_failure": "Some avatar providers could not be reached. Showing results from the available providers.",
             "worker_unavailable_title": "Reconnecting to the background VRCX runtime",
             "worker_unavailable_description": "The background runtime is temporarily unavailable. Its authentication status cannot be confirmed yet. Saved history is retained; no new login is needed while reconnection is in progress.",
             "worker_check_failed_title": "VRCX status could not be checked",

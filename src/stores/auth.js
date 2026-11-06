@@ -951,6 +951,15 @@ export const useAuthStore = defineStore('Auth', () => {
             console.warn('Skipping auto-login because database initialization did not complete successfully.');
             return;
         }
+        if (runtimeCapabilities.serverMode) {
+            // Server mode keeps only the cookie session, so the desktop saved-
+            // password retry cannot recover it. Use the original logout flow
+            // when that session expires so status also requires authentication.
+            if (watchState.isLoggedIn && !serverAuthChallenge.value) {
+                await handleLogoutEvent();
+            }
+            return;
+        }
         await runHandleAutoLoginFlow();
     }
 

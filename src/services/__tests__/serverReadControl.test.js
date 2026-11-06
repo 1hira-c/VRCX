@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     watchState: { isLoggedIn: true },
@@ -18,7 +18,8 @@ const mocks = vi.hoisted(() => ({
     getMutualGraphMeta: vi.fn()
 }));
 
-vi.mock('../../api', () => ({
+vi.mock('../../api', async () => ({
+    queryRequest: (await import('../../api/queryRequest')).default,
     userRequest: {
         getUsers: (...args) => mocks.getUsers(...args),
         getUser: (...args) => mocks.getUser(...args)
@@ -35,6 +36,19 @@ vi.mock('../../api', () => ({
         getGroup: (...args) => mocks.getGroup(...args)
     }
 }));
+
+// Keep the original queryRequest, policies, keys and QueryClient in this test.
+// Only the transport is replaced, so repeated reads exercise the real cache.
+vi.mock('../../api/user', () => ({ default: { getUser: (...args) => mocks.getUser(...args) } }));
+vi.mock('../../api/world', () => ({ default: { getWorld: (...args) => mocks.getWorld(...args) } }));
+vi.mock('../../api/avatar', () => ({ default: { getAvatar: (...args) => mocks.getAvatar(...args) } }));
+vi.mock('../../api/group', () => ({ default: { getGroup: (...args) => mocks.getGroup(...args) } }));
+vi.mock('../../api/favorite', () => ({ default: {} }));
+vi.mock('../../api/instance', () => ({ default: {} }));
+vi.mock('../../api/inventory', () => ({ default: {} }));
+vi.mock('../../api/marketplace', () => ({ default: {} }));
+vi.mock('../../api/misc', () => ({ default: {} }));
+vi.mock('../appConfig', () => ({ logWebRequest: vi.fn(), withQueryLog: (work) => work() }));
 
 vi.mock('../../coordinators/avatarCoordinator', () => ({
     lookupAvatars: (...args) => mocks.lookupAvatars(...args)
@@ -54,6 +68,8 @@ vi.mock('../database', () => ({
 vi.mock('../watchState', () => ({ watchState: mocks.watchState }));
 
 import { createServerEntityDocument, dispatchServerReadControlRequest } from '../serverReadControl';
+import { queryClient } from '../../queries/client';
+import { entityQueryPolicies } from '../../queries/policies';
 
 const stores = {
     user: { currentUser: { id: 'usr_current' } }
@@ -61,6 +77,7 @@ const stores = {
 
 describe('serverReadControl', () => {
     beforeEach(() => {
+        queryClient.clear();
         mocks.watchState.isLoggedIn = true;
         for (const mock of [
             mocks.getUsers,
@@ -81,6 +98,39 @@ describe('serverReadControl', () => {
             mock.mockReset();
         }
     });
+
+    afterEach(() => {
+        queryClient.clear();
+        vi.useRealTimers();
+    });
+
+    it.each([
+        ['user', 'usr_cached', 'getUser', entityQueryPolicies.user.staleTime],
+        ['world', 'wrld_cached', 'getWorld', entityQueryPolicies.world.staleTime],
+        ['avatar', 'avtr_cached', 'getAvatar', 120_000],
+        ['group', 'grp_cached', 'getGroup', entityQueryPolicies.group.staleTime]
+    ])(
+        'shares the original %s cache between parallel browser reads and refreshes stale data',
+        async (type, id, method, staleTime) => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            mocks[method].mockResolvedValue({ json: { id, name: 'First', displayName: 'First' } });
+            const request = { operation: 'entity', payload: { type, id } };
+            const replies = await Promise.all([
+                dispatchServerReadControlRequest(stores, request),
+                dispatchServerReadControlRequest(stores, request)
+            ]);
+            expect(replies.every((reply) => reply.ok && reply.item.name === 'First')).toBe(true);
+            expect(mocks[method]).toHaveBeenCalledOnce();
+            await dispatchServerReadControlRequest(stores, request);
+            expect(mocks[method]).toHaveBeenCalledOnce();
+
+            vi.setSystemTime(Date.now() + staleTime + 1);
+            mocks[method].mockResolvedValue({ json: { id, name: 'Updated', displayName: 'Updated' } });
+            const refreshed = await dispatchServerReadControlRequest(stores, request);
+            expect(mocks[method]).toHaveBeenCalledTimes(2);
+            expect(refreshed.item.name).toBe('Updated');
+        }
+    );
 
     it('uses the original VRCX user request with bounded typed parameters', async () => {
         mocks.getUsers.mockResolvedValue({
@@ -225,6 +275,38 @@ describe('serverReadControl', () => {
             id: 'avtr_ok',
             name: 'Avatar'
         });
+    });
+
+    it.each(['avatar_remote_database_disabled', 'avatar_remote_database_limit_exceeded'])(
+        'preserves the fixed avatar provider failure %s through the read boundary',
+        async (code) => {
+            mocks.lookupAvatars.mockRejectedValue(Object.assign(new Error(), { code }));
+            const result = await dispatchServerReadControlRequest(stores, {
+                operation: 'search',
+                payload: { type: 'avatar', query: 'name', offset: 0, limit: 5_000 }
+            });
+            expect(result).toMatchObject({ ok: false, items: [], errorCode: code });
+        }
+    );
+
+    it('reports provider network failure instead of a successful empty avatar search', async () => {
+        mocks.lookupAvatars.mockRejectedValue(new TypeError('provider unavailable'));
+        const result = await dispatchServerReadControlRequest(stores, {
+            operation: 'search',
+            payload: { type: 'avatar', query: 'name', offset: 0, limit: 5_000 }
+        });
+        expect(result).toMatchObject({ ok: false, items: [], errorCode: 'network_error' });
+    });
+
+    it('rejects an oversized provider search result instead of truncating silently', async () => {
+        mocks.lookupAvatars.mockResolvedValue(
+            new Map(Array.from({ length: 5_001 }, (_, i) => [`avtr_${i}`, { id: `avtr_${i}` }]))
+        );
+        const result = await dispatchServerReadControlRequest(stores, {
+            operation: 'search',
+            payload: { type: 'avatar', query: 'name', offset: 0, limit: 5_000 }
+        });
+        expect(result).toMatchObject({ ok: false, items: [], errorCode: 'avatar_remote_database_limit_exceeded' });
     });
 
     it('invokes the original instance activity methods and serializes the original location map', async () => {

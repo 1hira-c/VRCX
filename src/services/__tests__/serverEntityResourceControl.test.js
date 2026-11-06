@@ -230,6 +230,59 @@ describe('serverEntityResourceControl', () => {
         ).toBeNull();
     });
 
+    it('returns the complete remote author list from one original provider lookup', async () => {
+        mocks.lookupAvatars.mockResolvedValue(
+            new Map(Array.from({ length: 250 }, (_, i) => [`avtr_${i}`, { id: `avtr_${i}`, authorId: 'usr_author' }]))
+        );
+        const response = await entityResource(stores, {
+            name: 'userRemoteAvatars',
+            arguments: { userId: 'usr_author' }
+        });
+
+        expect(response.ok).toBe(true);
+        expect(response.result.items).toHaveLength(250);
+        expect(response.result.warningCode).toBeNull();
+        expect(mocks.lookupAvatars).toHaveBeenCalledExactlyOnceWith('authorId', 'usr_author', {
+            onPartialFailure: expect.any(Function)
+        });
+    });
+
+    it('keeps partial provider results with only a fixed warning code', async () => {
+        mocks.lookupAvatars.mockImplementation(async (_type, _authorId, options) => {
+            options.onPartialFailure();
+            return new Map([['avtr_one', { id: 'avtr_one', authorId: 'usr_author', cookie: 'must-not-cross' }]]);
+        });
+        const response = await entityResource(stores, {
+            name: 'userRemoteAvatars',
+            arguments: { userId: 'usr_author' }
+        });
+        expect(response).toMatchObject({
+            ok: true,
+            result: { items: [{ id: 'avtr_one' }], warningCode: 'avatar_provider_partial_failure' },
+            errorCode: null
+        });
+        expect(JSON.stringify(response)).not.toContain('must-not-cross');
+    });
+
+    it('reports oversized remote author results instead of truncating or appearing empty', async () => {
+        mocks.lookupAvatars.mockResolvedValue(
+            new Map(Array.from({ length: 5_001 }, (_, i) => [`avtr_${i}`, { id: `avtr_${i}` }]))
+        );
+        expect(
+            await entityResource(stores, { name: 'userRemoteAvatars', arguments: { userId: 'usr_author' } })
+        ).toEqual({ ok: false, result: null, errorCode: 'avatar_remote_database_limit_exceeded' });
+    });
+
+    it.each(['avatar_remote_database_disabled', 'upstream_error'])(
+        'preserves remote author failure %s',
+        async (code) => {
+            mocks.lookupAvatars.mockRejectedValue(Object.assign(new Error(), { code }));
+            expect(
+                await entityResource(stores, { name: 'userRemoteAvatars', arguments: { userId: 'usr_author' } })
+            ).toEqual({ ok: false, result: null, errorCode: code });
+        }
+    );
+
     it('never calls upstream resources without the original authenticated worker session', async () => {
         mocks.watchState.isLoggedIn = false;
         const response = await entityResource(stores, {

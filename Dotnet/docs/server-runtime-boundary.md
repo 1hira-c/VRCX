@@ -31,8 +31,11 @@ Browser-side worker availability is tracked separately from VRChat authenticatio
 Only an explicit `503 vrchat_worker_unavailable` marks the worker unavailable and
 preserves the last known session and data. Other login/OTP failures stay on the auth
 form. Failed status reads retry after at least 30 seconds and respect `Retry-After`;
-credentials are never retried automatically. Status reads have a separate concurrency
-limit so polling cannot consume the login/OTP rate-limit budget.
+credentials are never retried automatically. Status and domain reads have separate
+concurrency limits so polling and browsing cannot consume the login/OTP rate-limit
+budget. VRChat request pacing remains in the original runtime. An expired server
+cookie session uses the original logout flow, rather than the desktop saved-password
+retry, so the browser can request reauthentication.
 
 The server data directory must be supplied explicitly, for example:
 
@@ -66,3 +69,22 @@ Communication with the hidden runtime uses two narrow interfaces:
 Projection code belongs at this boundary. The original Pipeline payloads and VRCX
 domain objects remain intact inside the trusted runtime; allowlisting must not
 discard context before reducers, history, feed, and notification persistence have run.
+
+Entity details use the original `queryRequest` and its cache policies, including
+coalescing concurrent reads. Remote avatar lookups check the worker's persisted
+`VRCX_avatarRemoteDatabase` setting before contacting a provider, and load the original
+persistent VRCX identifier independently of desktop self-update. Browser-local
+preferences cannot override that server setting.
+
+Author avatar results cross the fixed read boundary once, as a complete list with
+at most 5,000 entries. Name search retains the original 5,000-result range. Provider
+failures never become a successful empty search; existing displayed results remain
+visible on failure. For an author lookup with both successful and failed providers,
+the result includes available entries and only the fixed
+`avatar_provider_partial_failure` warning, preserving the original partial-result
+notification without exposing provider URLs or exception text. Oversized results
+fail explicitly rather than silently truncating.
+
+Server shutdown drains cookie-save timer callbacks, serializes the final save and
+key disposal, and prevents later writes with the destroyed key. Desktop cookie
+persistence and HTTP completion behavior remain unchanged.

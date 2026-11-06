@@ -102,6 +102,8 @@ internal sealed record VrchatWorkerSearchResponse(
     [property: JsonRequired] int Limit,
     [property: JsonRequired] string? ErrorCode);
 
+internal sealed record VrchatWorkerSearchResult(PageResult<SearchDocument>? Page, string? ErrorCode = null);
+
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record VrchatWorkerEntityResponse(
     [property: JsonRequired] bool Ok,

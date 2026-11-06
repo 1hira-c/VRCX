@@ -102,7 +102,7 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
     public Task<VrchatWorkerAuthResult> LogoutAsync(CancellationToken cancellationToken) =>
         SendAuthAsync(VrchatWorkerOperation.Logout, null, cancellationToken);
 
-    public async Task<PageResult<SearchDocument>?> SearchAsync(
+    public async Task<VrchatWorkerSearchResult> SearchAsync(
         string type,
         string query,
         int offset,
@@ -110,19 +110,40 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
         VrchatWorkerSearchOptions options,
         CancellationToken cancellationToken)
     {
+        var invalidResponse = new VrchatWorkerSearchResult(null, type == "avatar" ? "avatar_search_failed" : null);
         if (!IsValidSearchRequest(type, query, options) ||
             offset is < 0 or > 10_000 ||
-            limit is < 1 or > 200)
+            limit < 1 || limit > (type == "avatar" ? MaximumRemoteAvatarCount : 200))
         {
-            return null;
+            return invalidResponse;
         }
 
         var trimmedQuery = query.Trim();
-        var response = await SendJsonAsync<VrchatWorkerSearchResponse>(
+        var exchange = await SendJsonResultAsync<VrchatWorkerSearchResponse>(
             VrchatWorkerOperation.Search,
             new VrchatWorkerSearchRequest(type, trimmedQuery, offset, limit, options),
-            MaximumReadResponseBytes,
+            type == "avatar" ? MaximumRemoteAvatarResponseBytes : MaximumReadResponseBytes,
             cancellationToken);
+        var response = exchange.Response;
+        if (type == "avatar")
+        {
+            // Preserve local-cache browsing when the worker is offline or not
+            // logged in. A provider failure must remain visible to the browser.
+            if (exchange.Failure == VrchatWorkerAuthFailure.Unavailable ||
+                response is { Ok: false, ErrorCode: "requires_authentication", Items.Count: 0, Total: 0 } &&
+                response.Offset == offset && response.Limit == limit)
+            {
+                return new(null);
+            }
+            if (response is { Ok: false })
+            {
+                return new(null, AvatarSearchErrorCode(response.ErrorCode));
+            }
+            if (response?.Items is { Count: > MaximumRemoteAvatarCount })
+            {
+                return new(null, "avatar_remote_database_limit_exceeded");
+            }
+        }
         if (response is null ||
             !response.Ok ||
             response.ErrorCode is not null ||
@@ -132,7 +153,7 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
             response.Total < response.Items.Count ||
             response.Items.Count > limit)
         {
-            return null;
+            return invalidResponse;
         }
 
         var items = new List<SearchDocument>(response.Items.Count);
@@ -141,13 +162,22 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
             var document = ToSearchDocument(item, type, expectedId: null);
             if (document is null)
             {
-                return null;
+                return invalidResponse;
             }
             items.Add(document);
         }
 
-        return new PageResult<SearchDocument>(items, response.Total, response.Offset, response.Limit);
+        return new(new PageResult<SearchDocument>(items, response.Total, response.Offset, response.Limit));
     }
+
+    private static string AvatarSearchErrorCode(string? code) =>
+        code is "avatar_remote_database_disabled" or "avatar_remote_database_limit_exceeded" or
+                "upstream_error" or "network_error" or "request_aborted" or "invalid_upstream_response" ||
+            code is { Length: 8 } && code.StartsWith("http_", StringComparison.Ordinal) &&
+            int.TryParse(code.AsSpan(5), NumberStyles.None, CultureInfo.InvariantCulture, out var status) &&
+            status is >= 400 and <= 599
+                ? code
+                : "avatar_search_failed";
 
     public async Task<SearchDocument?> GetEntityAsync(
         string type,
@@ -507,9 +537,10 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
         return IsValidJsonValue(payload, 0, ref nodes);
     }
 
-    private static bool IsValidJsonValue(JsonElement value, int depth, ref int nodes)
+    private static bool IsValidJsonValue(
+        JsonElement value, int depth, ref int nodes, int maximumNodes = MaximumPayloadNodes)
     {
-        if (depth > MaximumPayloadDepth || ++nodes > MaximumPayloadNodes)
+        if (depth > MaximumPayloadDepth || ++nodes > maximumNodes)
         {
             return false;
         }
@@ -522,7 +553,7 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
                     if (property.Name.Length is < 1 or > MaximumPayloadPropertyNameLength ||
                         property.Name.Contains('\0') ||
                         IsSensitivePayloadKey(property.Name) ||
-                        !IsValidJsonValue(property.Value, depth + 1, ref nodes))
+                        !IsValidJsonValue(property.Value, depth + 1, ref nodes, maximumNodes))
                     {
                         return false;
                     }
@@ -531,7 +562,7 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
             case JsonValueKind.Array:
                 foreach (var item in value.EnumerateArray())
                 {
-                    if (!IsValidJsonValue(item, depth + 1, ref nodes))
+                    if (!IsValidJsonValue(item, depth + 1, ref nodes, maximumNodes))
                     {
                         return false;
                     }

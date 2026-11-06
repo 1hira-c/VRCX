@@ -148,6 +148,16 @@ export function request(endpoint, options) {
                     if (parsed.data.error.message === '"Missing Credentials"') {
                         authStore.handleAutoLogin();
                         $throw(401, t('api.error.message.missing_credentials'), endpoint);
+                    } else if (
+                        parsed.data.error.message === '"Unauthorized"' &&
+                        runtimeCapabilities.serverMode &&
+                        watchState.isLoggedIn &&
+                        endpoint === 'auth/user' &&
+                        !authStore.serverAuthChallenge
+                    ) {
+                        // The current-user recheck also failed. Server mode has
+                        // no saved password to renew its cookie session.
+                        authStore.handleAutoLogin();
                     } else if (parsed.data.error.message === '"Unauthorized"' && endpoint !== 'auth/user') {
                         // trigger 2FA dialog                }
                         if (!authStore.twoFactorAuthDialogVisible) {
@@ -225,9 +235,10 @@ export function request(endpoint, options) {
             $throw(status, data, endpoint);
         });
     if (init.method === 'GET') {
-        req.finally(() => {
+        const removePendingRequest = () => {
             pendingGetRequests.delete(init.url);
-        });
+        };
+        req.then(removePendingRequest, removePendingRequest);
         pendingGetRequests.set(init.url, {
             req,
             time: Date.now()

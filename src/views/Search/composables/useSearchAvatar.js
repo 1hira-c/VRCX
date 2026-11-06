@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import { storeToRefs } from 'pinia';
+import { toast } from 'vue-sonner';
 
 import { useAdvancedSettingsStore, useSearchStore } from '../../../stores';
 import { lookupAvatars } from '../../../coordinators/avatarCoordinator';
@@ -22,26 +23,34 @@ export function useSearchAvatar() {
 
     async function searchAvatar() {
         isSearchAvatarLoading.value = true;
-        const avatars = new Map();
-        const query = searchText.value;
+        try {
+            const avatars = new Map();
+            const query = searchText.value;
 
-        if (query && query.length >= 3 && (isWebPlatform || avatarRemoteDatabase.value)) {
-            const data = isWebPlatform
-                ? (await searchWebEntities('avatar', query, { offset: 0, limit: 200 })).items
-                : await lookupAvatars('search', query);
-            if (data && typeof data === 'object') {
-                data.forEach((avatar) => {
-                    const ref = isWebPlatform ? applyAvatar(avatar) : avatar;
-                    avatars.set(ref.id, ref);
-                });
+            // Web requests use the worker's persisted setting; browser-local
+            // preferences cannot enable or disable its external providers.
+            if (query && query.length >= 3 && (isWebPlatform || avatarRemoteDatabase.value)) {
+                const data = isWebPlatform
+                    ? (await searchWebEntities('avatar', query, { offset: 0, limit: 5_000 })).items
+                    : await lookupAvatars('search', query);
+                if (data && typeof data === 'object') {
+                    data.forEach((avatar) => {
+                        const ref = isWebPlatform ? applyAvatar(avatar) : avatar;
+                        avatars.set(ref.id, ref);
+                    });
+                }
             }
-        }
 
-        isSearchAvatarLoading.value = false;
-        const avatarsArray = Array.from(avatars.values());
-        searchAvatarPageNum.value = 0;
-        searchAvatarResults.value = avatarsArray;
-        searchAvatarPage.value = avatarsArray.slice(0, 10);
+            const avatarsArray = Array.from(avatars.values());
+            searchAvatarPageNum.value = 0;
+            searchAvatarResults.value = avatarsArray;
+            searchAvatarPage.value = avatarsArray.slice(0, 10);
+        } catch (error) {
+            if (!isWebPlatform) throw error;
+            toast.error(error.message);
+        } finally {
+            isSearchAvatarLoading.value = false;
+        }
     }
 
     /**

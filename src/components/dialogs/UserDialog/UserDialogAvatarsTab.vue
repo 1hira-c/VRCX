@@ -112,6 +112,8 @@
     import { computed, ref, watch } from 'vue';
     import { useI18n } from 'vue-i18n';
     import { storeToRefs } from 'pinia';
+    import { toast } from 'vue-sonner';
+    import { isWebPlatform } from '../../../web/platform';
 
     import { Image, RefreshCw } from 'lucide-vue-next';
     import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -185,25 +187,31 @@
      * @param userId
      */
     async function setUserDialogAvatarsRemote(userId) {
-        if (avatarRemoteDatabase.value && userId !== currentUser.value.id) {
+        if ((isWebPlatform || avatarRemoteDatabase.value) && userId !== currentUser.value.id) {
             userDialog.value.isAvatarsLoading = true;
-            const data = await lookupAvatars('authorId', userId);
-            const avatars = new Set();
-            userDialogAvatars.value.forEach((avatar) => {
-                avatars.add(avatar.id);
-            });
-            if (data && typeof data === 'object') {
-                data.forEach((avatar) => {
-                    if (avatar.id && !avatars.has(avatar.id)) {
-                        if (avatar.authorId === userId) {
-                            userDialog.value.avatars.push(avatar);
-                        } else {
-                            console.error(`Avatar authorId mismatch for ${avatar.id} - ${avatar.name}`);
-                        }
-                    }
+            try {
+                const data = await lookupAvatars('authorId', userId);
+                const avatars = new Set();
+                userDialogAvatars.value.forEach((avatar) => {
+                    avatars.add(avatar.id);
                 });
+                if (data && typeof data === 'object') {
+                    data.forEach((avatar) => {
+                        if (avatar.id && !avatars.has(avatar.id)) {
+                            if (avatar.authorId === userId) {
+                                userDialog.value.avatars.push(avatar);
+                            } else {
+                                console.error(`Avatar authorId mismatch for ${avatar.id} - ${avatar.name}`);
+                            }
+                        }
+                    });
+                }
+            } catch (error) {
+                if (!isWebPlatform) throw error;
+                toast.error(error.message);
+            } finally {
+                userDialog.value.isAvatarsLoading = false;
             }
-            userDialog.value.isAvatarsLoading = false;
         }
         sortUserDialogAvatars(userDialog.value.avatars);
     }

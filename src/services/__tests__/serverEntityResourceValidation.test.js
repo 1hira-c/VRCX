@@ -8,6 +8,17 @@ const {
 } = require('../../../src-electron/serverEntityResourceValidation.js');
 
 describe('server entity-resource validation', () => {
+    it('accepts the one-shot author lookup and rejects the old repeated-page contract', () => {
+        const payload = { name: 'userRemoteAvatars', arguments: { userId: 'usr_author' } };
+        expect(validateEntityResourcePayload(payload)).toEqual(payload);
+        expect(
+            validateEntityResourcePayload({
+                name: 'userRemoteAvatars',
+                arguments: { userId: 'usr_author', n: 100, offset: 0 }
+            })
+        ).toBeNull();
+    });
+
     it('accepts the exact original user-world tab parameters', () => {
         const payload = {
             name: 'userWorlds',

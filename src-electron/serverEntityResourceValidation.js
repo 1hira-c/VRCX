@@ -16,7 +16,7 @@ const RESOURCE_FIELDS = new Map([
     ['userFavoriteWorlds', ['userId', 'tag', 'n', 'offset']],
     ['userOwnedAvatars', ['userId', 'n', 'offset', 'sort', 'order', 'releaseStatus']],
     ['userLicensedAvatars', ['userId', 'n', 'offset']],
-    ['userRemoteAvatars', ['userId', 'n', 'offset']],
+    ['userRemoteAvatars', ['userId']],
     ['groupPosts', ['groupId', 'n', 'offset']],
     ['groupMember', ['groupId', 'userId']],
     ['groupMembers', ['groupId', 'n', 'offset', 'sort', 'roleId']],
@@ -112,12 +112,12 @@ function validArguments(name, value) {
         case 'userPublicProfile':
         case 'userRepresentedGroup':
         case 'userGroups':
+        case 'userRemoteAvatars':
             return entityId('userId', value.userId);
         case 'userWorlds':
             return validateUserWorlds(value);
         case 'userFavoriteGroups':
         case 'userLicensedAvatars':
-        case 'userRemoteAvatars':
             return entityId('userId', value.userId) && page(value, 100);
         case 'userFavoriteWorlds':
             return entityId('userId', value.userId) && page(value, 100) && boundedText(value.tag, 256);

@@ -5,7 +5,7 @@ internal static class EntityResourceEndpoints
     public static RouteGroupBuilder MapEntityResourceApi(this RouteGroupBuilder api)
     {
         var resources = api.MapGroup(string.Empty)
-            .RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+            .RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
         resources.MapGet("/users/{userId}/public-profile", (
             string userId,
@@ -114,10 +114,9 @@ internal static class EntityResourceEndpoints
 
         resources.MapGet("/users/{userId}/avatars/remote", (
             string userId,
-            [AsParameters] EntityPageQuery query,
             VrchatWorkerClient worker,
             CancellationToken cancellationToken) =>
-            PagedUserResourceAsync(worker, "userRemoteAvatars", userId, query, cancellationToken));
+            UserResourceAsync(worker, "userRemoteAvatars", userId, cancellationToken));
 
         resources.MapGet("/groups/{groupId}/posts", async (
             string groupId,

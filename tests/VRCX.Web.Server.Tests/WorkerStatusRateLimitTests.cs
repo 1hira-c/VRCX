@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Xunit;
 
 namespace VRCX.Web.Server.Tests;
@@ -9,7 +10,7 @@ namespace VRCX.Web.Server.Tests;
 public sealed partial class ReadApiEndpointTests
 {
     [Fact]
-    public async Task StatusPollingDoesNotConsumeOrDependOnTheLoginAndTwoFactorBudget()
+    public async Task StatusPollingAndBrowsingDoNotConsumeOrDependOnTheLoginAndTwoFactorBudget()
     {
         var temporaryDirectory = Path.Combine(
             Path.GetTempPath(), "vrcx-web-worker-rate-tests", Guid.NewGuid().ToString("N"));
@@ -61,6 +62,51 @@ public sealed partial class ReadApiEndpointTests
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             }
 
+            var reads = new (string Path, string WorkerPath, object Reply)[]
+            {
+                ("/api/v1/users/usr_example/groups", "/control/v1/entity-resource",
+                    new { ok = true, result = Array.Empty<object>(), errorCode = (string?)null }),
+                ("/api/v1/search?type=user&q=example&limit=1", "/control/v1/search",
+                    new { ok = true, items = Array.Empty<object>(), total = 0, offset = 0, limit = 1, errorCode = (string?)null }),
+                ("/api/v1/users/usr_example", "/control/v1/entity",
+                    new { ok = true, item = new { type = "user", id = "usr_example", name = "Example",
+                        ownerId = (string?)null, description = (string?)null, updatedAt = (string?)null,
+                        payload = new { id = "usr_example", displayName = "Example" } }, errorCode = (string?)null }),
+                ("/api/v1/history-native/feed", "/control/v1/database-read",
+                    new { ok = true, result = Array.Empty<object>(), errorCode = (string?)null }),
+                ("/api/v1/analytics/instance-activity/dates", "/control/v1/database-read",
+                    new { ok = true, result = Array.Empty<string>(), errorCode = (string?)null })
+            };
+            async Task ReadAsync(int index)
+            {
+                var read = reads[index % reads.Length];
+                var exchange = ReplyFromWorkerAsync(worker, "POST", read.WorkerPath, (_, _) => { }, read.Reply);
+                using var response = await SendAuthenticatedAsync(client, HttpMethod.Get, read.Path, cookie);
+                await exchange;
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            }
+            // Profile tabs, search, and refreshes together readily exceed the
+            // old shared 30/minute budget, even without local status polling.
+            for (var request = 0; request < 64; request++) await ReadAsync(request);
+
+            // Multiple profiles and the initial refresh can run together. The
+            // browsing cap still bounds outstanding work without blocking 2FA.
+            var pendingReads = new List<Task<HttpResponseMessage>>();
+            var heldReads = new List<HttpListenerContext>();
+            for (var index = 0; index < 32; index++)
+            {
+                pendingReads.Add(SendAuthenticatedAsync(
+                    client, HttpMethod.Get, "/api/v1/users/usr_example/groups", cookie));
+                var context = await worker.GetContextAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Equal("/control/v1/entity-resource", context.Request.Url!.AbsolutePath);
+                heldReads.Add(context);
+            }
+            using (var overloaded = await SendAuthenticatedAsync(
+                client, HttpMethod.Get, "/api/v1/users/usr_example/groups", cookie))
+            {
+                Assert.Equal(HttpStatusCode.TooManyRequests, overloaded.StatusCode);
+            }
+
             var loginExchange = ReplyFromWorkerAsync(worker, "POST", "/control/v1/login", (_, _) => { }, new
             {
                 ok = true,
@@ -91,6 +137,21 @@ public sealed partial class ReadApiEndpointTests
                 Assert.Equal(HttpStatusCode.OK, twoFactor.StatusCode);
             }
 
+            var readReply = JsonSerializer.SerializeToUtf8Bytes(
+                new { ok = true, result = Array.Empty<object>(), errorCode = (string?)null });
+            foreach (var context in heldReads)
+            {
+                context.Response.ContentType = "application/json";
+                context.Response.ContentLength64 = readReply.Length;
+                await context.Response.OutputStream.WriteAsync(readReply);
+                context.Response.Close();
+            }
+            foreach (var pending in pendingReads)
+            {
+                using var response = await pending;
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            }
+
             // Authentication still has its own 30/minute protection. Invalid
             // commands consume a permit without making any upstream request.
             for (var request = 0; request < 28; request++)
@@ -112,6 +173,7 @@ public sealed partial class ReadApiEndpointTests
                 client, HttpMethod.Get, "/api/v1/vrchat/auth/status", cookie);
             await finalExchange;
             Assert.Equal(HttpStatusCode.OK, finalStatus.StatusCode);
+            for (var index = 0; index < reads.Length; index++) await ReadAsync(index);
         }
         finally
         {

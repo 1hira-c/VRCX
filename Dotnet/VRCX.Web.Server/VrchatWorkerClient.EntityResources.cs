@@ -4,6 +4,9 @@ namespace VRCX.Web.Server;
 
 internal sealed partial class VrchatWorkerClient
 {
+    private const int MaximumRemoteAvatarResponseBytes = 16 * 1024 * 1024;
+    private const int MaximumRemoteAvatarCount = 5_000;
+    private const int MaximumRemoteAvatarPayloadNodes = 500_000;
     private static readonly HashSet<string> EntityResourceNames = new(StringComparer.Ordinal)
     {
         "userPublicProfile",
@@ -37,7 +40,7 @@ internal sealed partial class VrchatWorkerClient
         var response = await SendJsonAsync<VrchatWorkerEntityResourceResponse>(
             VrchatWorkerOperation.EntityResource,
             new VrchatWorkerEntityResourceRequest(name, arguments),
-            MaximumDatabaseReadResponseBytes,
+            name == "userRemoteAvatars" ? MaximumRemoteAvatarResponseBytes : MaximumDatabaseReadResponseBytes,
             cancellationToken);
         if (response is null || !IsValidErrorCode(response.ErrorCode) ||
             response.Ok == (response.ErrorCode is not null) ||
@@ -52,9 +55,16 @@ internal sealed partial class VrchatWorkerClient
         }
 
         var result = response.Result!.Value;
+        if (name == "userRemoteAvatars" && result.ValueKind == JsonValueKind.Object &&
+            result.TryGetProperty("items", out var remoteAvatars) && remoteAvatars.ValueKind == JsonValueKind.Array &&
+            remoteAvatars.GetArrayLength() > MaximumRemoteAvatarCount)
+        {
+            return new VrchatEntityResourceResult(false, null, "avatar_remote_database_limit_exceeded");
+        }
         var nodes = 0;
         if (result.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array) ||
-            !IsValidJsonValue(result, 0, ref nodes) ||
+            !IsValidJsonValue(result, 0, ref nodes,
+                name == "userRemoteAvatars" ? MaximumRemoteAvatarPayloadNodes : MaximumPayloadNodes) ||
             !IsValidEntityResourceRoot(name, result))
         {
             return null;
@@ -65,7 +75,7 @@ internal sealed partial class VrchatWorkerClient
 
     private static bool IsValidEntityResourceRoot(string name, JsonElement result)
     {
-        var expectsObject = name is "userPublicProfile" or "userRepresentedGroup" or
+        var expectsObject = name is "userPublicProfile" or "userRepresentedGroup" or "userRemoteAvatars" or
             "groupPosts" or "groupMember" or "groupMembersSearch" or "worldInstance";
         if (expectsObject != (result.ValueKind == JsonValueKind.Object))
         {
@@ -75,6 +85,15 @@ internal sealed partial class VrchatWorkerClient
         if (result.ValueKind == JsonValueKind.Array && result.GetArrayLength() > 10_000)
         {
             return false;
+        }
+        if (name == "userRemoteAvatars")
+        {
+            return result.EnumerateObject().Count() == 2 &&
+                result.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array &&
+                items.GetArrayLength() <= MaximumRemoteAvatarCount &&
+                result.TryGetProperty("warningCode", out var warning) &&
+                (warning.ValueKind == JsonValueKind.Null ||
+                 warning.ValueKind == JsonValueKind.String && warning.GetString() == "avatar_provider_partial_failure");
         }
         if (name == "groupPosts" &&
             (!result.TryGetProperty("posts", out var posts) || posts.ValueKind != JsonValueKind.Array ||

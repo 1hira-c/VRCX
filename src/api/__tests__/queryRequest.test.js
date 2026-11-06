@@ -240,6 +240,8 @@ vi.mock('../inventory', () => ({
         getInventoryTemplate: vi.fn()
     }
 }));
+vi.mock('../marketplace', () => ({ default: { getVRChatCredits: vi.fn() } }));
+vi.mock('../instance', () => ({ default: { getInstanceCount: vi.fn() } }));
 vi.mock('../misc', () => ({
     default: {
         getFile: vi.fn(),

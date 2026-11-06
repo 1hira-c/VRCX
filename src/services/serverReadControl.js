@@ -1,4 +1,4 @@
-import { avatarRequest, groupRequest, userRequest, worldRequest } from '../api';
+import { groupRequest, queryRequest, userRequest, worldRequest } from '../api';
 import { lookupAvatars } from '../coordinators/avatarCoordinator';
 import { database } from './database';
 import { executeHistoryDatabaseRead, historyDatabaseReadNames } from './serverHistoryReadControl';
@@ -90,6 +90,9 @@ export function createServerEntityDocument(type, value) {
 }
 
 function errorCode(error) {
+    if (['avatar_remote_database_disabled', 'avatar_remote_database_limit_exceeded'].includes(error?.code)) {
+        return error.code;
+    }
     const status = Number(error?.status);
     if (Number.isInteger(status) && status >= 400 && status <= 599) {
         return status === 404 ? 'not_found' : `http_${status}`;
@@ -148,6 +151,9 @@ async function searchOriginalVrcx(payload) {
             // tab. The browser supplies only the search term; provider URL and
             // VRCX identification remain owned by the original worker.
             const avatars = await lookupAvatars('search', payload.query);
+            if (avatars.size > 5_000) {
+                throw Object.assign(new Error(), { code: 'avatar_remote_database_limit_exceeded' });
+            }
             return Array.from(avatars.values()).slice(payload.offset, payload.offset + payload.limit);
         }
         default:
@@ -185,13 +191,13 @@ async function search(stores, payload) {
 async function getOriginalVrcxEntity(payload) {
     switch (payload.type) {
         case 'user':
-            return (await userRequest.getUser({ userId: payload.id })).json;
+            return (await queryRequest.fetch('user', { userId: payload.id })).json;
         case 'world':
-            return (await worldRequest.getWorld({ worldId: payload.id })).json;
+            return (await queryRequest.fetch('world', { worldId: payload.id })).json;
         case 'avatar':
-            return (await avatarRequest.getAvatar({ avatarId: payload.id })).json;
+            return (await queryRequest.fetch('avatar.dialog', { avatarId: payload.id })).json;
         case 'group':
-            return (await groupRequest.getGroup({ groupId: payload.id, includeRoles: true })).json;
+            return (await queryRequest.fetch('group', { groupId: payload.id, includeRoles: true })).json;
         default:
             return null;
     }

@@ -5,7 +5,7 @@ internal static class HistoryReadEndpoints
     internal static RouteGroupBuilder MapVrcxHistoryReadApi(this RouteGroupBuilder api)
     {
         var history = api.MapGroup("/history-native")
-            .RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+            .RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
         history.MapGet("/feed", GetFeedAsync);
         history.MapGet("/game-log", GetGameLogAsync);

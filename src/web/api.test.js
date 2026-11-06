@@ -58,6 +58,24 @@ describe('WebApiClient', () => {
         expect(options.headers.get('Content-Type')).toBeNull();
     });
 
+    it('fetches the complete bounded remote avatar list once without author paging', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
+        vi.stubGlobal('fetch', fetchMock);
+        const api = new WebApiClient();
+
+        await api.getUserRemoteAvatars('usr_author');
+        await api.search('avatar', 'name', { offset: 0, limit: 5_000 });
+        await api.search('user', 'name', { offset: 0, limit: 5_000 });
+        await api.getFriends({ offset: 0, limit: 5_000 });
+
+        expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+            '/api/v1/users/usr_author/avatars/remote',
+            '/api/v1/search?type=avatar&q=name&offset=0&limit=5000',
+            '/api/v1/search?type=user&q=name&offset=0&limit=200',
+            '/api/v1/friends?offset=0&limit=200'
+        ]);
+    });
+
     it('maps only allowed search resource types to fixed endpoints', async () => {
         const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ items: [] }));
         vi.stubGlobal('fetch', fetchMock);

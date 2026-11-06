@@ -300,8 +300,8 @@ export class WebApiClient {
         return this.get(userResourcePath(userId, '/avatars/licensed') + entityPageSuffix(page));
     }
 
-    getUserRemoteAvatars(userId, page) {
-        return this.get(userResourcePath(userId, '/avatars/remote') + entityPageSuffix(page));
+    getUserRemoteAvatars(userId) {
+        return this.get(userResourcePath(userId, '/avatars/remote'));
     }
 
     getGroupPosts(groupId, page) {
@@ -393,7 +393,7 @@ export class WebApiClient {
     search(type, query, page, options) {
         if (!Object.hasOwn(SEARCH_DETAIL_PATHS, type)) throw new Error('Unsupported search type.');
         const params = new URLSearchParams({ type, q: String(query ?? '') });
-        appendPageParams(params, page);
+        appendPageParams(params, page, type === 'avatar' ? 5_000 : 200);
         appendSearchOptions(params, type, options);
         return this.get('/search?' + params.toString());
     }
@@ -419,10 +419,12 @@ function pagePath(path, page) {
 }
 
 // Clamp paging inputs before they leave the browser.
-function appendPageParams(params, page) {
+function appendPageParams(params, page, maximumLimit = 200) {
     if (!page) return;
     if (Number.isFinite(page.offset)) params.set('offset', String(Math.max(0, Math.floor(page.offset))));
-    if (Number.isFinite(page.limit)) params.set('limit', String(Math.min(200, Math.max(1, Math.floor(page.limit)))));
+    if (Number.isFinite(page.limit)) {
+        params.set('limit', String(Math.min(maximumLimit, Math.max(1, Math.floor(page.limit)))));
+    }
 }
 
 const USER_WORLD_SORTS = new Set(['name', 'updated', 'created', 'favorites', 'popularity']);

@@ -67,6 +67,13 @@ builder.Services.AddRateLimiter(options =>
         limiter.PermitLimit = 8;
         limiter.QueueLimit = 0;
     });
+    // Browsing must not spend authentication permits. Limit outstanding BFF
+    // work while retaining the original VRCX request pacing and backoff.
+    options.AddConcurrencyLimiter(VrchatWorkerEndpoints.ReadRateLimitPolicy, limiter =>
+    {
+        limiter.PermitLimit = 32;
+        limiter.QueueLimit = 0;
+    });
     options.AddFixedWindowLimiter(VrcxSnapshotUploadEndpoints.RateLimitPolicy, limiter =>
     {
         limiter.PermitLimit = 5;
@@ -375,7 +382,7 @@ api.MapGet("/analytics/instance-activity/dates", async (
 {
     var result = await worker.GetDateOfInstanceActivityAsync(cancellationToken);
     return result is null ? AnalyticsWorkerUnavailable() : Results.Ok(result);
-}).RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+}).RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
 api.MapGet("/analytics/instance-activity", async (
     [AsParameters] InstanceActivityQuery query,
@@ -388,7 +395,7 @@ api.MapGet("/analytics/instance-activity", async (
     }
     var result = await worker.GetInstanceActivityAsync(query.StartDate!, query.EndDate!, cancellationToken);
     return result is null ? AnalyticsWorkerUnavailable() : Results.Ok(result);
-}).RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+}).RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
 api.MapGet("/analytics/hot-worlds", async (
     [AsParameters] HotWorldQuery query,
@@ -401,7 +408,7 @@ api.MapGet("/analytics/hot-worlds", async (
     }
     var result = await worker.GetHotWorldsAsync(query.Days, query.Limit, cancellationToken);
     return result is null ? AnalyticsWorkerUnavailable() : Results.Ok(result);
-}).RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+}).RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
 api.MapGet("/analytics/hot-worlds/{worldId}/friends", async (
     string worldId,
@@ -416,7 +423,7 @@ api.MapGet("/analytics/hot-worlds/{worldId}/friends", async (
     }
     var result = await worker.GetHotWorldFriendDetailAsync(worldId, query.Days, cancellationToken);
     return result is null ? AnalyticsWorkerUnavailable() : Results.Ok(result);
-}).RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+}).RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
 api.MapGet("/analytics/mutual-graph/snapshot", async (
     VrchatWorkerClient worker,
@@ -424,7 +431,7 @@ api.MapGet("/analytics/mutual-graph/snapshot", async (
 {
     var result = await worker.GetMutualGraphSnapshotAsync(cancellationToken);
     return result is null ? AnalyticsWorkerUnavailable() : Results.Ok(result);
-}).RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+}).RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
 api.MapGet("/analytics/mutual-graph/meta", async (
     VrchatWorkerClient worker,
@@ -432,7 +439,7 @@ api.MapGet("/analytics/mutual-graph/meta", async (
 {
     var result = await worker.GetMutualGraphMetaAsync(cancellationToken);
     return result is null ? AnalyticsWorkerUnavailable() : Results.Ok(result);
-}).RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+}).RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
 api.MapGet("/memos/{entityType}/{id}", async (
     string entityType,
@@ -456,37 +463,43 @@ api.MapGet("/search", async (
         return Results.BadRequest(new { error = "invalid_search" });
     }
 
-    var (offset, limit) = NormalizePageQuery(query.Offset, query.Limit);
+    var (offset, limit) = query.Type == "avatar"
+        ? (Math.Clamp(query.Offset, 0, 10_000), Math.Clamp(query.Limit <= 0 ? 50 : query.Limit, 1, 5_000))
+        : NormalizePageQuery(query.Offset, query.Limit);
     var searchText = (query.Q ?? string.Empty).Trim();
-    var result = await worker.SearchAsync(query.Type!, searchText, offset, limit, options, cancellationToken) ??
-        await readStore.SearchAsync(query.Type!, searchText, offset, limit, cancellationToken);
+    var workerResult = await worker.SearchAsync(query.Type!, searchText, offset, limit, options, cancellationToken);
+    if (workerResult.ErrorCode is not null)
+    {
+        return Results.Json(new { error = workerResult.ErrorCode }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    var result = workerResult.Page ?? await readStore.SearchAsync(query.Type!, searchText, offset, limit, cancellationToken);
     return Results.Ok(result);
-}).RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+}).RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
 api.MapGet("/users/{id}", (
     string id,
     VrchatWorkerClient worker,
     VrcxReadStore readStore,
     CancellationToken cancellationToken) => GetEntityResultAsync("user", id, worker, readStore, cancellationToken))
-    .RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+    .RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 api.MapGet("/worlds/{id}", (
     string id,
     VrchatWorkerClient worker,
     VrcxReadStore readStore,
     CancellationToken cancellationToken) => GetEntityResultAsync("world", id, worker, readStore, cancellationToken))
-    .RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+    .RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 api.MapGet("/avatars/{id}", (
     string id,
     VrchatWorkerClient worker,
     VrcxReadStore readStore,
     CancellationToken cancellationToken) => GetEntityResultAsync("avatar", id, worker, readStore, cancellationToken))
-    .RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+    .RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 api.MapGet("/groups/{id}", (
     string id,
     VrchatWorkerClient worker,
     VrcxReadStore readStore,
     CancellationToken cancellationToken) => GetEntityResultAsync("group", id, worker, readStore, cancellationToken))
-    .RequireRateLimiting(VrchatWorkerEndpoints.RateLimitPolicy);
+    .RequireRateLimiting(VrchatWorkerEndpoints.ReadRateLimitPolicy);
 
 api.MapGet("/events", StreamEventsAsync);
 

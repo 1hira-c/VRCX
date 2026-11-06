@@ -28,6 +28,8 @@ import { syncAvatarSearchIndex, removeAvatarSearchIndex } from './searchIndexCoo
 import { useUiStore } from '../stores/ui';
 import { useUserStore } from '../stores/user';
 import { useVRCXUpdaterStore } from '../stores/vrcxUpdater';
+import configRepository from '../services/config';
+import { runtimeCapabilities } from '../services/runtimeCapabilities';
 
 import webApiService from '../services/webapi';
 import { getWebEntity } from '../web/entities';
@@ -278,21 +280,21 @@ export async function getAvatarName(imageUrl) {
 /**
  * @param type
  * @param search
+ * @param options
  */
-export async function lookupAvatars(type, search) {
+export async function lookupAvatars(type, search, options = {}) {
+    await prepareServerAvatarLookup();
     const avatarProviderStore = useAvatarProviderStore();
     const vrcxUpdaterStore = useVRCXUpdaterStore();
 
     const avatars = new Map();
     if (isWebPlatform && type === 'authorId') {
-        let offset = 0;
-        while (offset <= 10_000) {
-            const page = await webApi.getUserRemoteAvatars(search, { offset, limit: 100 });
-            for (const avatar of page) {
-                if (avatar?.id && avatar.authorId === search && !avatars.has(avatar.id)) avatars.set(avatar.id, avatar);
-            }
-            if (page.length < 100) break;
-            offset += 100;
+        const result = await webApi.getUserRemoteAvatars(search);
+        for (const avatar of result.items) {
+            if (avatar?.id && avatar.authorId === search && !avatars.has(avatar.id)) avatars.set(avatar.id, avatar);
+        }
+        if (result.warningCode === 'avatar_provider_partial_failure') {
+            toast.warning(i18n.global.t('web.vrchat.avatar_provider_partial_failure'));
         }
         return avatars;
     }
@@ -334,23 +336,44 @@ export async function lookupAvatars(type, search) {
                 throw new Error(`Error: ${response.data}`);
             }
         } catch (err) {
+            if (runtimeCapabilities.serverMode) throw err;
             const msg = `Avatar search failed for ${search} with ${avatarProviderStore.avatarRemoteDatabaseProvider}\n${err}`;
             console.error(msg);
             toast.error(msg);
         }
     } else if (type === 'authorId') {
         const length = avatarProviderStore.avatarRemoteDatabaseProviderList.length;
+        let providerError;
         for (let i = 0; i < length; ++i) {
             const url = avatarProviderStore.avatarRemoteDatabaseProviderList[i];
-            const avatarArray = await lookupAvatarsByAuthor(url, search);
-            avatarArray.forEach((avatar) => {
-                if (!avatars.has(avatar.id)) {
-                    avatars.set(avatar.id, avatar);
-                }
-            });
+            try {
+                const avatarArray = await lookupAvatarsByAuthor(url, search);
+                avatarArray.forEach((avatar) => {
+                    if (!avatars.has(avatar.id)) {
+                        avatars.set(avatar.id, avatar);
+                    }
+                });
+            } catch (error) {
+                if (!runtimeCapabilities.serverMode) throw error;
+                providerError = error;
+            }
         }
+        if (providerError && avatars.size === 0) throw providerError;
+        if (providerError) options.onPartialFailure?.('avatar_provider_partial_failure');
     }
     return avatars;
+}
+
+async function prepareServerAvatarLookup() {
+    if (!runtimeCapabilities.serverMode) return;
+    // Read the original persisted setting before any external request. The
+    // settings store can still be loading when a worker request first arrives.
+    if (!(await configRepository.getBool('VRCX_avatarRemoteDatabase', true))) {
+        throw Object.assign(new Error('Remote avatar database lookup is disabled.'), {
+            code: 'avatar_remote_database_disabled'
+        });
+    }
+    await useVRCXUpdaterStore().loadVrcxId();
 }
 
 /**
@@ -358,6 +381,7 @@ export async function lookupAvatars(type, search) {
  * @param fileId
  */
 export async function lookupAvatarByImageFileId(authorId, fileId) {
+    await prepareServerAvatarLookup();
     const avatarProviderStore = useAvatarProviderStore();
 
     for (const providerUrl of avatarProviderStore.avatarRemoteDatabaseProviderList) {
@@ -367,14 +391,21 @@ export async function lookupAvatarByImageFileId(authorId, fileId) {
         }
     }
 
+    let providerError;
     for (const providerUrl of avatarProviderStore.avatarRemoteDatabaseProviderList) {
-        const avatarArray = await lookupAvatarsByAuthor(providerUrl, authorId);
-        for (const avatar of avatarArray) {
-            if (extractFileId(avatar.imageUrl) === fileId) {
-                return avatar.id;
+        try {
+            const avatarArray = await lookupAvatarsByAuthor(providerUrl, authorId);
+            for (const avatar of avatarArray) {
+                if (extractFileId(avatar.imageUrl) === fileId) {
+                    return avatar.id;
+                }
             }
+        } catch (error) {
+            if (!runtimeCapabilities.serverMode) throw error;
+            providerError = error;
         }
     }
+    if (providerError) throw providerError;
     return null;
 }
 
@@ -465,6 +496,7 @@ async function lookupAvatarsByAuthor(providerUrl, authorId) {
             throw new Error(`Error: ${response.data}`);
         }
     } catch (err) {
+        if (runtimeCapabilities.serverMode) throw err;
         const msg = `Avatar lookup failed for ${authorId} with ${url}\n${err}`;
         console.error(msg);
         toast.error(msg);

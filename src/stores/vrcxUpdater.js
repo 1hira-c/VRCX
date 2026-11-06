@@ -33,6 +33,7 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
     const latestAppVersion = ref('');
     const branch = ref('Stable');
     const vrcxId = ref('');
+    let vrcxIdPromise = null;
     const checkingForVRCXUpdate = ref(false);
     const VRCXUpdateDialog = ref({
         visible: false,
@@ -63,6 +64,7 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
             noUpdater.value = true;
             autoUpdateVRCX.value = 'Off';
             appVersion.value = await AppApi.GetVersion();
+            await loadVrcxId();
             return;
         }
         if (LINUX) {
@@ -74,10 +76,7 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
             noUpdater.value = true;
         }
 
-        const [VRCX_autoUpdateVRCX, VRCX_id] = await Promise.all([
-            configRepository.getString('VRCX_autoUpdateVRCX', 'Auto Download'),
-            configRepository.getString('VRCX_id', '')
-        ]);
+        const VRCX_autoUpdateVRCX = await configRepository.getString('VRCX_autoUpdateVRCX', 'Auto Download');
 
         if (VRCX_autoUpdateVRCX === 'Auto Install') {
             autoUpdateVRCX.value = 'Auto Download';
@@ -89,7 +88,6 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
         }
 
         appVersion.value = await AppApi.GetVersion();
-        vrcxId.value = VRCX_id;
 
         await initBranch();
         await loadVrcxId();
@@ -230,10 +228,20 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
         }
     }
     async function loadVrcxId() {
-        if (!vrcxId.value) {
-            vrcxId.value = crypto.randomUUID();
-            await configRepository.setString('VRCX_id', vrcxId.value);
+        if (isWebPlatform) return '';
+        if (vrcxId.value) return vrcxId.value;
+        if (!vrcxIdPromise) {
+            vrcxIdPromise = (async () => {
+                const savedId = await configRepository.getString('VRCX_id', '');
+                const id = savedId || crypto.randomUUID();
+                if (!savedId) await configRepository.setString('VRCX_id', id);
+                vrcxId.value = id;
+                return id;
+            })().finally(() => {
+                vrcxIdPromise = null;
+            });
         }
+        return vrcxIdPromise;
     }
     function getAssetOfInterest(assets) {
         let downloadUrl = '';
@@ -523,6 +531,7 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
         updateInProgress,
         updateProgress,
         noUpdater,
+        loadVrcxId,
 
         setAutoUpdateVRCX,
         setBranch,
