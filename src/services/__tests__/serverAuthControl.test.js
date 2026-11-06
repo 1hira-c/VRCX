@@ -34,10 +34,11 @@ function worldDocument(overrides = {}) {
     };
 }
 
-async function start({ ready = true, dispatch = vi.fn(() => response()) } = {}) {
+async function start({ ready = true, dispatch = vi.fn(() => response()), getUnavailableErrorCode = () => null } = {}) {
     control = createServerAuthControl({
         port: 0,
         isRendererReady: () => ready,
+        getUnavailableErrorCode,
         dispatch
     });
     await control.listen();
@@ -110,6 +111,17 @@ describe('server auth control', () => {
 
         expect(result.status).toBe(503);
         expect(await result.json()).toEqual(response({ ok: false, errorCode: 'renderer_unavailable' }));
+        expect(dispatch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['database_initialization_failed', 'database_initialization_failed'],
+        ['sensitive database path and exception', 'renderer_unavailable']
+    ])('reports only the fixed startup failure code (%s)', async (input, expected) => {
+        const { baseUrl, dispatch } = await start({ ready: false, getUnavailableErrorCode: () => input });
+        const result = await fetch(baseUrl + '/control/v1/status');
+        expect(result.status).toBe(503);
+        expect(await result.json()).toEqual(response({ ok: false, errorCode: expected }));
         expect(dispatch).not.toHaveBeenCalled();
     });
 

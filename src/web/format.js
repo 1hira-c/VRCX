@@ -125,9 +125,14 @@ export function errorMessage(error) {
         return 'このページの接続元を確認できませんでした。再読み込みしてください。';
     if (error?.status === 401) return 'セッションまたはVRChat認証が必要です。';
     if (error?.status === 429) return '要求が多すぎます。少し待ってから再試行してください。';
-    if (error?.status === 503)
+    if (
+        error?.status === 503 &&
+        errorCode === 'vrchat_worker_unavailable' &&
+        error?.body?.reason === 'database_initialization_failed'
+    )
+        return 'データベースの初期化に失敗しました。ホスト上のデータベースを確認してください。';
+    if (error?.status === 503 && errorCode === 'vrchat_worker_unavailable')
         return '常駐VRCXとの接続を復旧しています。認証切れとは限りません。保存済みデータは維持されています。';
-    if (error?.status === 502) return 'VRChatとの通信に失敗しました。保存済みのデータはそのまま表示しています。';
     return error?.message || '要求を完了できませんでした。';
 }
 

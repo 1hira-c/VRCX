@@ -16,6 +16,36 @@ function jsonResponse(body, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('WebApiClient', () => {
+    it.each([
+        ['120', 120_000],
+        ['Fri, 06 Nov 2026 10:02:00 GMT', 120_000],
+        ['invalid', null]
+    ])(
+        'retains only a parsed Retry-After delay from a rate-limited response: %s',
+        async (retryAfter, expectedDelay) => {
+            const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T10:00:00Z'));
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue({
+                    ...jsonResponse({ error: 'rate_limited' }, 429),
+                    headers: {
+                        get: (name) =>
+                            name === 'content-type' ? 'application/json' : name === 'retry-after' ? retryAfter : null
+                    }
+                })
+            );
+            try {
+                await expect(new WebApiClient().getVrchatAuthStatus()).rejects.toMatchObject({
+                    status: 429,
+                    retryAfterMs: expectedDelay,
+                    body: { error: 'rate_limited' }
+                });
+            } finally {
+                clock.mockRestore();
+            }
+        }
+    );
+
     it('sends named read requests with browser session credentials', async () => {
         const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ items: [] }));
         vi.stubGlobal('fetch', fetchMock);

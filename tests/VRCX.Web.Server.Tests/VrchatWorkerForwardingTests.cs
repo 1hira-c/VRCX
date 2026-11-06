@@ -553,7 +553,11 @@ public sealed partial class ReadApiEndpointTests
                 sessionCookie))
             {
                 await unsafeWorkerResponse;
-                await AssertWorkerUnavailableAsync(response);
+                Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+                var body = await response.Content.ReadAsStringAsync();
+                using var payload = JsonDocument.Parse(body);
+                Assert.Equal("vrchat_worker_bad_response", payload.RootElement.GetProperty("error").GetString());
+                Assert.DoesNotContain("must-not-cross", body, StringComparison.Ordinal);
             }
         }
         finally
@@ -876,7 +880,8 @@ public sealed partial class ReadApiEndpointTests
         string expectedMethod,
         string expectedPath,
         Action<HttpListenerRequest, JsonDocument?> inspectRequest,
-        object responsePayload)
+        object responsePayload,
+        HttpStatusCode responseStatus = HttpStatusCode.OK)
     {
         var context = await listener.GetContextAsync().WaitAsync(TimeSpan.FromSeconds(5));
         JsonDocument? body = null;
@@ -894,7 +899,7 @@ public sealed partial class ReadApiEndpointTests
         finally
         {
             var responseBytes = JsonSerializer.SerializeToUtf8Bytes(responsePayload);
-            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            context.Response.StatusCode = (int)responseStatus;
             context.Response.ContentType = "application/json";
             context.Response.ContentLength64 = responseBytes.Length;
             await context.Response.OutputStream.WriteAsync(responseBytes);

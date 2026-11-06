@@ -19,7 +19,7 @@
                             side="top">
                             <button
                                 type="button"
-                                :disabled="webSession.state.workerConnection !== 'available'"
+                                :aria-disabled="webSession.state.workerConnection !== 'available'"
                                 class="flex items-center gap-1 px-2 h-[22px] whitespace-nowrap border-r border-border cursor-pointer hover:bg-accent"
                                 @click="handleWebVrchatClick">
                                 <span class="inline-block size-2 rounded-full shrink-0" :class="webVrchatStatusDot" />
@@ -516,7 +516,10 @@
     const modalStore = useModalStore();
 
     const webVrchatStatusLabel = computed(() => {
+        if (webSession.state.workerFailureReason === 'database_initialization_failed')
+            return t('web.vrchat.status.database_initialization_failed');
         if (webSession.state.workerConnection === 'unavailable') return t('web.vrchat.status.worker_unavailable');
+        if (webSession.state.workerConnection === 'check_failed') return t('web.vrchat.status.check_failed');
         if (webSession.state.workerConnection === 'checking') return t('web.vrchat.status.unknown');
         const statusKey =
             {
@@ -528,15 +531,20 @@
         return t(`web.vrchat.status.${statusKey}`);
     });
     const webVrchatStatusDot = computed(() => {
+        if (webSession.state.workerFailureReason === 'database_initialization_failed') return 'bg-destructive';
         if (webSession.state.workerConnection !== 'available') return 'bg-status-askme';
         if (webSession.state.vrchatAuth.status === 'authenticated') return 'bg-status-online';
         if (webSession.state.vrchatAuth.status === 'authenticating') return 'bg-status-askme';
         return 'bg-status-offline-alt';
     });
     const webVrchatTooltip = computed(() =>
-        webSession.state.workerConnection === 'unavailable'
-            ? t('web.vrchat.worker_unavailable_description')
-            : t('web.vrchat.status_tooltip', { status: webVrchatStatusLabel.value })
+        webSession.state.workerFailureReason === 'database_initialization_failed'
+            ? t('web.vrchat.database_initialization_failed_description')
+            : webSession.state.workerConnection === 'check_failed'
+              ? t('web.vrchat.worker_check_failed_description')
+              : webSession.state.workerConnection === 'unavailable'
+                ? t('web.vrchat.worker_unavailable_description')
+                : t('web.vrchat.status_tooltip', { status: webVrchatStatusLabel.value })
     );
     const webSyncView = computed(() =>
         syncStatusPresentation(webSession.state.status, webSession.state.workerConnection)

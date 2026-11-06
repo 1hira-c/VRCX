@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const require = createRequire(import.meta.url);
 const { attachServerRendererLifecycle } = require('../../../src-electron/serverRendererLifecycle.js');
 const READY_TIMEOUT = 120_000;
+const UNRESPONSIVE_GRACE = 30_000;
 const cleanups = [];
 
 function createLifecycle(options = {}) {
@@ -65,19 +66,19 @@ describe('hidden server renderer lifecycle', () => {
         expect(runtime.onFailure).not.toHaveBeenCalled();
     });
 
-    it('fails a renderer that never becomes ready after initial creation', () => {
+    it('allows slow initial migrations to complete without a readiness deadline', () => {
         const runtime = createLifecycle();
-        vi.advanceTimersByTime(READY_TIMEOUT - 1);
-        expect(runtime.onFailure).not.toHaveBeenCalled();
-        vi.advanceTimersByTime(1);
+        runtime.webContents.emit('did-navigate', {}, 'file:///app/index.html', -1, '');
+        runtime.window.emit('unresponsive');
+        vi.advanceTimersByTime(30 * 60_000);
 
-        expect(runtime.ready).toBe(false);
-        expect(runtime.markUnavailable).toHaveBeenCalledOnce();
-        expect(runtime.onFailure).toHaveBeenCalledExactlyOnceWith('renderer_ready_timeout');
-        expect(runtime.lifecycle.markReady()).toBe(false);
+        expect(runtime.onFailure).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+        runtime.markReady();
+        expect(runtime.ready).toBe(true);
     });
 
-    it('cancels the initial watchdog after the renderer ready handshake', () => {
+    it('does not schedule restarts merely because initialization takes a long time', () => {
         const runtime = createLifecycle();
         vi.advanceTimersByTime(READY_TIMEOUT - 1);
         runtime.markReady();
@@ -88,31 +89,37 @@ describe('hidden server renderer lifecycle', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('invalidates readiness for a new main-frame document and starts a fresh watchdog', () => {
-        const runtime = createLifecycle({ readyTimeoutMs: 1_000 });
+    it('invalidates readiness only after the new main-frame document commits', () => {
+        const runtime = createLifecycle();
         runtime.markReady();
-        runtime.webContents.emit('did-start-navigation', {}, 'file:///app/index.html', false, true);
+        runtime.webContents.emit('did-start-navigation', { isSameDocument: false, isMainFrame: true });
+        expect(runtime.ready).toBe(true);
+        runtime.webContents.emit('did-navigate', {}, 'file:///app/index.html', -1, '');
 
         expect(runtime.ready).toBe(false);
         expect(runtime.markUnavailable).toHaveBeenCalledOnce();
-        vi.advanceTimersByTime(999);
+        runtime.window.emit('unresponsive');
+        vi.advanceTimersByTime(30 * 60_000);
         expect(runtime.onFailure).not.toHaveBeenCalled();
-        vi.advanceTimersByTime(1);
-        expect(runtime.onFailure).toHaveBeenCalledExactlyOnceWith('renderer_ready_timeout');
+        expect(vi.getTimerCount()).toBe(0);
+        runtime.markReady();
+        expect(runtime.ready).toBe(true);
     });
 
-    it('accepts a new document ready handshake and resets the timeout on another full navigation', () => {
-        const runtime = createLifecycle({ readyTimeoutMs: 1_000 });
+    it.each(['cancelled', 'failed'])('preserves the old document when navigation is %s before commit', (outcome) => {
+        const runtime = createLifecycle();
         runtime.markReady();
-        runtime.webContents.emit('did-start-navigation', {}, 'file:///app/index.html', false, true);
-        vi.advanceTimersByTime(800);
-        runtime.webContents.emit('did-start-navigation', {}, 'file:///app/index.html', false, true);
-        vi.advanceTimersByTime(800);
-        expect(runtime.onFailure).not.toHaveBeenCalled();
-        runtime.markReady();
-        vi.advanceTimersByTime(2_000);
+        runtime.webContents.emit('did-start-navigation', { isSameDocument: false, isMainFrame: true });
+        if (outcome === 'cancelled') {
+            runtime.webContents.emit('will-navigate', { preventDefault: vi.fn() });
+        } else {
+            runtime.webContents.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED');
+        }
+        runtime.webContents.emit('did-stop-loading');
+        vi.advanceTimersByTime(30 * 60_000);
 
         expect(runtime.ready).toBe(true);
+        expect(runtime.markUnavailable).not.toHaveBeenCalled();
         expect(runtime.onFailure).not.toHaveBeenCalled();
     });
 
@@ -128,13 +135,43 @@ describe('hidden server renderer lifecycle', () => {
         expect(JSON.stringify(runtime.onFailure.mock.calls)).not.toContain('arbitrary-sensitive-detail');
     });
 
-    it('fails an unresponsive hidden window without waiting for process exit', () => {
+    it('lets a short hang recover without restarting the worker', () => {
+        const runtime = createLifecycle();
+        runtime.markReady();
+        runtime.window.emit('unresponsive');
+        vi.advanceTimersByTime(UNRESPONSIVE_GRACE - 1);
+        expect(runtime.ready).toBe(true);
+        expect(runtime.onFailure).not.toHaveBeenCalled();
+        runtime.window.emit('responsive');
+        vi.advanceTimersByTime(UNRESPONSIVE_GRACE * 2);
+
+        expect(runtime.ready).toBe(true);
+        expect(runtime.onFailure).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('fails a continuously unresponsive ready window after one bounded grace period', () => {
         const runtime = createLifecycle();
         runtime.markReady();
         runtime.window.emit('unresponsive', { reason: 'untrusted detail' });
+        vi.advanceTimersByTime(UNRESPONSIVE_GRACE - 1);
+        expect(runtime.onFailure).not.toHaveBeenCalled();
+        runtime.window.emit('unresponsive');
+        vi.advanceTimersByTime(1);
 
         expect(runtime.ready).toBe(false);
         expect(runtime.onFailure).toHaveBeenCalledExactlyOnceWith('renderer_unresponsive');
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('cancels the previous document hang timer when a new document commits', () => {
+        const runtime = createLifecycle();
+        runtime.markReady();
+        runtime.window.emit('unresponsive');
+        runtime.webContents.emit('did-navigate', {}, 'file:///app/index.html', -1, '');
+        vi.advanceTimersByTime(UNRESPONSIVE_GRACE * 2);
+
+        expect(runtime.onFailure).not.toHaveBeenCalled();
         expect(vi.getTimerCount()).toBe(0);
     });
 
@@ -166,6 +203,8 @@ describe('hidden server renderer lifecycle', () => {
         expect(runtime.webContents.listenerCount('did-start-navigation')).toBe(1);
         expect(runtime.webContents.listenerCount('render-process-gone')).toBe(0);
         expect(runtime.window.listenerCount('unresponsive')).toBe(0);
+        expect(runtime.window.listenerCount('responsive')).toBe(0);
+        expect(runtime.webContents.listenerCount('did-navigate')).toBe(0);
         expect(vi.getTimerCount()).toBe(0);
     });
 });

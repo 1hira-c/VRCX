@@ -26,13 +26,15 @@ export function syncStatusPresentation(status, workerConnection = 'available') {
     const state =
         workerConnection === 'unavailable'
             ? 'worker_unavailable'
-            : status?.authenticationRequired
-              ? 'requires_authentication'
-              : sync?.stale
-                ? 'stale'
-                : SYNC_STATES.has(sync?.state)
-                  ? sync.state
-                  : 'unknown';
+            : workerConnection === 'check_failed'
+              ? 'check_failed'
+              : status?.authenticationRequired
+                ? 'requires_authentication'
+                : sync?.stale
+                  ? 'stale'
+                  : SYNC_STATES.has(sync?.state)
+                    ? sync.state
+                    : 'unknown';
     const lastSuccessAt =
         typeof sync?.lastSuccessAt === 'string' && Number.isFinite(Date.parse(sync.lastSuccessAt))
             ? sync.lastSuccessAt

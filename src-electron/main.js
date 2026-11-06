@@ -160,7 +160,7 @@ let serverTerminationRequested = false;
 let serverDotNetShutdownStarted = false;
 
 function requestServerTermination() {
-    if (serverTerminationRequested) {
+    if (appIsQuitting || serverTerminationRequested) {
         return;
     }
     serverTerminationRequested = true;
@@ -197,6 +197,7 @@ ipcMain.handle('callDotNetMethod', (event, className, methodName, args) => {
 let mainWindow = undefined;
 let serverAuthControl = null;
 let serverAuthRendererReady = false;
+let serverStartupFailure = null;
 let serverRendererLifecycle = null;
 const pendingServerAuthRequests = new Map();
 
@@ -248,9 +249,15 @@ function isMainRendererEvent(event) {
 }
 
 ipcMain.on('server-auth-control:ready', (event) => {
-    if (isMainRendererEvent(event) && serverRendererLifecycle?.markReady()) {
+    if (isMainRendererEvent(event) && !serverStartupFailure && serverRendererLifecycle?.markReady()) {
         serverAuthRendererReady = true;
     }
+});
+
+ipcMain.on('server-auth-control:startup-failed', (event) => {
+    if (!isMainRendererEvent(event) || serverAuthRendererReady) return;
+    serverStartupFailure = 'database_initialization_failed';
+    markServerAuthRendererUnavailable();
 });
 
 ipcMain.on('server-auth-control:response', (event, requestId, response) => {
@@ -272,6 +279,7 @@ async function startServerAuthControl() {
     }
     serverAuthControl = createServerAuthControl({
         isRendererReady: () => serverAuthRendererReady,
+        getUnavailableErrorCode: () => serverStartupFailure,
         dispatch: dispatchServerAuthRequest
     });
     try {
@@ -486,7 +494,6 @@ function createWindow() {
         serverRendererLifecycle = attachServerRendererLifecycle(mainWindow, {
             markUnavailable: markServerAuthRendererUnavailable,
             onFailure: (code) => {
-                if (appIsQuitting || serverTerminationRequested) return;
                 console.error('Hidden VRCX renderer needs restart:', code);
                 requestServerTermination();
             }

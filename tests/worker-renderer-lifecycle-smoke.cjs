@@ -76,12 +76,34 @@ app.whenReady()
         assert.equal(ready, true, 'Hash navigation invalidated the original renderer handshake');
         assert.deepEqual(failures, []);
 
-        stage = 'full document reload';
-        const fullNavigation = waitForEvent(
-            webContents,
-            'did-start-navigation',
-            (_event, _url, isInPlace, isMainFrame) => !isInPlace && isMainFrame
+        stage = 'cancelled navigation keeps the existing page';
+        const previousUrl = webContents.getURL();
+        const cancelNavigation = (details) => details.preventDefault();
+        webContents.once('will-navigate', cancelNavigation);
+        const cancelled = waitForEvent(webContents, 'will-navigate');
+        await bounded(
+            webContents.executeJavaScript('location.href = "file:///cancelled-worker-navigation.html"'),
+            stage
         );
+        await bounded(cancelled, stage);
+        assert.equal(webContents.getURL(), previousUrl);
+        assert.equal(ready, true, 'A cancelled navigation invalidated the existing renderer handshake');
+
+        stage = 'failed navigation keeps the existing page';
+        await bounded(
+            webContents.loadURL('vrcx-renderer-test-invalid://missing').then(
+                () => {
+                    throw new Error('The intentionally unsupported navigation unexpectedly succeeded');
+                },
+                () => undefined
+            ),
+            stage
+        );
+        assert.equal(webContents.getURL(), previousUrl);
+        assert.equal(ready, true, 'A navigation that failed before commit invalidated the renderer handshake');
+
+        stage = 'full document reload';
+        const fullNavigation = waitForEvent(webContents, 'did-navigate');
         const reloaded = waitForEvent(webContents, 'did-finish-load');
         webContents.reload();
         await bounded(fullNavigation, stage);
@@ -107,7 +129,13 @@ app.whenReady()
         console.log(
             JSON.stringify({
                 ok: true,
-                checks: ['file-hash-preserves-readiness', 'full-reload-requires-handshake', 'renderer-crash-detected'],
+                checks: [
+                    'file-hash-preserves-readiness',
+                    'cancelled-navigation-preserves-readiness',
+                    'failed-navigation-preserves-readiness',
+                    'committed-reload-requires-handshake',
+                    'renderer-crash-detected'
+                ],
                 hashLoadingEventObserved: loadingEvents > loadingEventsBeforeHash,
                 failureCode: failures[0]
             })

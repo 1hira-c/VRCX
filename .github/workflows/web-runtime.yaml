@@ -40,6 +40,7 @@ jobs:
           src/services/__tests__/runtimeCapabilities.test.js
           src/services/__tests__/server*.test.js
           src/shared/utils/base/__tests__/uiNativeBoundary.test.js
+          src/stores/__tests__/vrcxServerDatabaseStartup.test.js
       - name: Test cookie protection
         run: dotnet test tests/VRCX.Transport.Tests/VRCX.Transport.Tests.csproj --configuration Release -p:Platform=x64 --runtime linux-x64
       - name: Test administrator sessions and pairing

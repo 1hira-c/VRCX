@@ -4,7 +4,7 @@ import { itemsFrom, webApi } from './api';
 import { errorMessage } from './format';
 
 const DEFAULT_PAGE = Object.freeze({ offset: 0, limit: 100 });
-const WORKER_RECONNECT_DELAY = 10_000;
+const WORKER_RECONNECT_DELAY = 30_000;
 
 const resourceRequests = Object.freeze({
     friends: (page) => webApi.getFriends(page),
@@ -54,13 +54,17 @@ const state = reactive({
     resourceRevisions: {},
     lastUpdatedAt: null,
     eventsConnection: 'idle',
-    workerConnection: 'checking'
+    workerConnection: 'checking',
+    workerFailureReason: null
 });
 
 let events;
 let lastAuthCheckAt = 0;
 let workerReconnectTimer;
 let workerFailureMessage = '';
+let workerStatusRequest;
+let workerStatusGeneration = 0;
+let workerStatusNotBefore = 0;
 
 export const webSession = {
     state,
@@ -135,7 +139,15 @@ async function refreshAuth() {
 }
 
 async function refreshVrchatAuth(options = {}) {
-    return runWorkerAuth(() => webApi.getVrchatAuthStatus(), options);
+    if (workerStatusRequest) return workerStatusRequest;
+    if (Date.now() < workerStatusNotBefore) return undefined;
+    const request = runWorkerAuth(() => webApi.getVrchatAuthStatus(), options, workerStatusGeneration);
+    workerStatusRequest = request;
+    try {
+        return await request;
+    } finally {
+        if (workerStatusRequest === request) workerStatusRequest = undefined;
+    }
 }
 
 async function refreshAll(options = {}) {
@@ -271,38 +283,61 @@ function clearError() {
     state.error = '';
 }
 
-async function runWorkerAuth(work, options = {}) {
+async function runWorkerAuth(work, options = {}, statusGeneration) {
+    const statusRead = statusGeneration !== undefined;
     return run(async () => {
         try {
-            return applyVrchatAuth(await work());
+            const payload = await work();
+            if (statusRead && statusGeneration !== workerStatusGeneration) return undefined;
+            return applyVrchatAuth(payload);
         } catch (error) {
-            // Transport availability is not evidence that the saved VRChat
-            // session expired. Keep the last confirmed auth and read model.
-            if (!error?.status || error.status >= 500) {
+            if (statusRead && statusGeneration !== workerStatusGeneration) return undefined;
+            // Only the BFF's explicit worker-unavailable response proves an
+            // outage. A failed login/OTP or a proxy error does not.
+            if (error?.status === 503 && error?.body?.error === 'vrchat_worker_unavailable') {
                 state.workerConnection = 'unavailable';
+                state.workerFailureReason =
+                    error.body.reason === 'database_initialization_failed' ? 'database_initialization_failed' : null;
                 workerFailureMessage = errorMessage(error);
+                scheduleWorkerReconnect(error);
+            } else if (statusRead && error?.status !== 401) {
+                state.workerConnection = 'check_failed';
+                state.workerFailureReason = null;
+                workerFailureMessage = errorMessage(error);
+                scheduleWorkerReconnect(error);
             }
-            if (state.workerConnection === 'unavailable') scheduleWorkerReconnect();
             throw error;
         }
     }, options);
 }
 
-function scheduleWorkerReconnect() {
-    if (workerReconnectTimer || !state.auth.authenticated) return;
-    workerReconnectTimer = window.setTimeout(() => {
-        workerReconnectTimer = undefined;
-        if (state.auth.authenticated && state.workerConnection === 'unavailable') {
-            // This fixed local status read never submits credentials or starts
-            // a new VRChat login; the original runtime owns that session.
-            void refreshVrchatAuth({ silent: true, keepError: true });
-        }
-    }, WORKER_RECONNECT_DELAY);
+function scheduleWorkerReconnect(error) {
+    if (!state.auth.authenticated) return;
+    const retryAfter = Number(error?.retryAfterMs);
+    const delay = Number.isFinite(retryAfter) ? Math.max(WORKER_RECONNECT_DELAY, retryAfter) : WORKER_RECONNECT_DELAY;
+    const nextCheckAt = Date.now() + Math.min(delay, 2_147_483_647);
+    if (workerReconnectTimer) {
+        if (nextCheckAt <= workerStatusNotBefore) return;
+        window.clearTimeout(workerReconnectTimer);
+    }
+    workerStatusNotBefore = nextCheckAt;
+    workerReconnectTimer = window.setTimeout(
+        () => {
+            workerReconnectTimer = undefined;
+            if (state.auth.authenticated && ['unavailable', 'check_failed'].includes(state.workerConnection)) {
+                // This fixed local status read never submits credentials or starts
+                // a new VRChat login; the original runtime owns that session.
+                void refreshVrchatAuth({ silent: true, keepError: true });
+            }
+        },
+        Math.min(delay, 2_147_483_647)
+    );
 }
 
 function clearWorkerReconnect() {
     if (workerReconnectTimer) window.clearTimeout(workerReconnectTimer);
     workerReconnectTimer = undefined;
+    workerStatusNotBefore = 0;
 }
 
 function applyVrchatAuth(payload) {
@@ -320,7 +355,7 @@ function applyVrchatAuth(payload) {
     const currentUserId =
         status === 'authenticated' && typeof payload?.currentUser?.id === 'string' ? payload.currentUser.id : '';
 
-    if (state.workerConnection === 'unavailable' && state.error === workerFailureMessage) clearError();
+    if (state.error === workerFailureMessage) clearError();
     workerFailureMessage = '';
     state.vrchatAuth = {
         ok: Boolean(payload?.ok),
@@ -330,6 +365,7 @@ function applyVrchatAuth(payload) {
         errorCode: typeof payload?.errorCode === 'string' ? payload.errorCode : null
     };
     state.workerConnection = 'available';
+    state.workerFailureReason = null;
     clearWorkerReconnect();
     return state.vrchatAuth;
 }
@@ -348,7 +384,7 @@ function mapDeviceSession(device) {
 async function run(work, options = {}) {
     const silent = Boolean(options.silent);
     if (!silent) state.pendingRequests++;
-    if (!options.keepError) clearError();
+    if (!silent && !options.keepError) clearError();
     try {
         return await work();
     } catch (error) {
@@ -401,6 +437,8 @@ function startEvents() {
 }
 
 function closeEvents() {
+    workerStatusGeneration++;
+    workerStatusRequest = undefined;
     clearWorkerReconnect();
     events?.close();
     events = undefined;

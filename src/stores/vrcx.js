@@ -176,6 +176,11 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                 refreshCustomScript();
             }
             databaseReadyForAutoLogin.value = true;
+        } catch (error) {
+            if (!runtimeCapabilities.serverMode) throw error;
+            // A hidden renderer cannot dismiss a desktop error dialog. Report
+            // only a fixed startup code and stop initialization.
+            window.electron?.reportServerStartupFailure();
         } finally {
             resolveDatabaseInit();
         }
@@ -205,8 +210,12 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                 state.databaseVersion = databaseVersion;
                 databaseUpgradeState.value.visible = false;
             } catch (err) {
-                console.error(err);
                 databaseUpgradeState.value.visible = false;
+                if (runtimeCapabilities.serverMode) {
+                    window.electron?.reportServerStartupFailure();
+                    return false;
+                }
+                console.error(err);
                 await modalStore.alert({
                     title: t('message.database.upgrade_failed_title'),
                     description: t('message.database.upgrade_failed_description'),

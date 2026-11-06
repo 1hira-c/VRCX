@@ -40,6 +40,18 @@ public sealed record VrchatAuthStatusResponse(
     VrchatCurrentUser? CurrentUser,
     string? ErrorCode);
 
+internal enum VrchatWorkerAuthFailure
+{
+    Unavailable,
+    Timeout,
+    BadResponse
+}
+
+internal sealed record VrchatWorkerAuthResult(
+    VrchatAuthStatusResponse? Response,
+    VrchatWorkerAuthFailure? Failure = null,
+    string? Reason = null);
+
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record VrchatWorkerResponse(
     [property: JsonRequired] bool Ok,

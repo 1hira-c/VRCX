@@ -35,6 +35,9 @@ export class WebApiClient {
             error.status = response.status;
             // @ts-ignore
             error.body = body;
+            // Keep only the standard retry delay, not response headers or cookies.
+            // @ts-ignore
+            error.retryAfterMs = retryAfterMilliseconds(response.headers.get('retry-after'));
             throw error;
         }
         return body;
@@ -399,6 +402,12 @@ export class WebApiClient {
         if (!Object.hasOwn(SEARCH_DETAIL_PATHS, type)) throw new Error('Unsupported search type.');
         return this.get('/' + SEARCH_DETAIL_PATHS[type] + '/' + encodeURIComponent(id));
     }
+}
+
+function retryAfterMilliseconds(value) {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const delay = /^\d+$/.test(value.trim()) ? Number(value) * 1000 : Date.parse(value) - Date.now();
+    return Number.isFinite(delay) ? Math.max(0, Math.min(delay, 2_147_483_647)) : null;
 }
 
 // Adds only numeric paging parameters to a fixed API path.

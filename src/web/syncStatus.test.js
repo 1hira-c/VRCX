@@ -1,6 +1,13 @@
 import { connectionStatusPresentation, syncStatusPresentation } from './syncStatus';
 
 describe('Web sync status presentation', () => {
+    it('does not label a failed status request as expired authentication or a proven outage', () => {
+        expect(syncStatusPresentation({ authenticationRequired: true }, 'check_failed')).toMatchObject({
+            state: 'check_failed',
+            labelKey: 'web.sync.state.check_failed',
+            tone: 'warning'
+        });
+    });
     it('shows worker reconnection instead of treating an unavailable renderer as expired authentication', () => {
         expect(
             syncStatusPresentation(

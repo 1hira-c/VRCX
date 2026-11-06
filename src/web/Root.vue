@@ -11,8 +11,13 @@
     <main v-else-if="workerUnavailableWithoutData" class="web-auth-page" data-testid="web-worker-unavailable">
         <div class="web-auth-loading">
             <span class="web-brand-mark">VRCX</span>
-            <p>{{ t('web.vrchat.worker_unavailable_title') }}</p>
-            <p class="max-w-md text-center">{{ t('web.vrchat.worker_unavailable_description') }}</p>
+            <p>{{ t(workerStatusTitle) }}</p>
+            <p class="max-w-md text-center">{{ t(workerStatusDescription) }}</p>
+            <p
+                v-if="webSession.state.workerConnection === 'check_failed' && webSession.state.error"
+                class="max-w-md text-center">
+                {{ webSession.state.error }}
+            </p>
         </div>
     </main>
 
@@ -35,15 +40,27 @@
     import WebSnapshotSetup from './components/WebSnapshotSetup.vue';
     import WebStateBootstrap from './components/WebStateBootstrap.vue';
     import { canBrowseWeb, hasExistingWebProjection, webSession } from './session';
+    import { resolveWebSessionRoute } from './sessionRouting';
 
     const router = useRouter();
     const { t } = useI18n();
-    const vrchatAuthenticated = computed(
-        () => webSession.state.auth.authenticated && webSession.state.vrchatAuth.status === 'authenticated'
-    );
     const canBrowse = computed(canBrowseWeb);
     const workerUnavailableWithoutData = computed(
-        () => webSession.state.workerConnection === 'unavailable' && !hasExistingWebProjection()
+        () => ['unavailable', 'check_failed'].includes(webSession.state.workerConnection) && !hasExistingWebProjection()
+    );
+    const workerStatusTitle = computed(() =>
+        webSession.state.workerFailureReason === 'database_initialization_failed'
+            ? 'web.vrchat.database_initialization_failed_title'
+            : webSession.state.workerConnection === 'check_failed'
+              ? 'web.vrchat.worker_check_failed_title'
+              : 'web.vrchat.worker_unavailable_title'
+    );
+    const workerStatusDescription = computed(() =>
+        webSession.state.workerFailureReason === 'database_initialization_failed'
+            ? 'web.vrchat.database_initialization_failed_description'
+            : webSession.state.workerConnection === 'check_failed'
+              ? 'web.vrchat.worker_check_failed_description'
+              : 'web.vrchat.worker_unavailable_description'
     );
     const snapshotSetupDismissed = ref(readSnapshotSetupDismissed());
     const showSnapshotSetup = computed(
@@ -82,30 +99,15 @@
             canBrowse
         ],
         ([ready, serverAuthenticated, vrchatStatus, workerConnection, browseAllowed]) => {
-            if (!ready) return;
-
-            const authenticated = vrchatStatus === 'authenticated';
-            if (!serverAuthenticated) return;
-            if (workerConnection === 'unavailable') {
-                if (browseAllowed && router.currentRoute.value.name === 'login') {
-                    void router.replace({ name: 'feed' });
-                }
-                return;
-            }
-
-            if (!browseAllowed && router.currentRoute.value.name !== 'login') {
-                const redirect = router.currentRoute.value.fullPath;
-                void router.replace({
-                    name: 'login',
-                    query: redirect && redirect !== '/feed' ? { redirect } : undefined
-                });
-                return;
-            }
-            if (!browseAllowed || router.currentRoute.value.name !== 'login') return;
-            if (!authenticated && router.currentRoute.value.query.reauth === '1') return;
-
-            const redirect = router.currentRoute.value.query.redirect;
-            void router.replace(typeof redirect === 'string' && redirect ? redirect : { name: 'feed' });
+            const destination = resolveWebSessionRoute({
+                ready,
+                serverAuthenticated,
+                vrchatStatus,
+                workerConnection,
+                browseAllowed,
+                route: router.currentRoute.value
+            });
+            if (destination) void router.replace(destination);
         },
         { immediate: true }
     );

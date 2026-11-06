@@ -83,23 +83,23 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
-    public Task<VrchatAuthStatusResponse?> GetStatusAsync(CancellationToken cancellationToken) =>
+    public Task<VrchatWorkerAuthResult> GetStatusAsync(CancellationToken cancellationToken) =>
         SendAuthAsync(VrchatWorkerOperation.Status, null, cancellationToken);
 
-    public Task<VrchatAuthStatusResponse?> LoginAsync(
+    public Task<VrchatWorkerAuthResult> LoginAsync(
         VrchatLoginRequest request,
         CancellationToken cancellationToken) =>
         SendAuthAsync(VrchatWorkerOperation.Login, request, cancellationToken);
 
-    public Task<VrchatAuthStatusResponse?> SubmitTwoFactorAsync(
+    public Task<VrchatWorkerAuthResult> SubmitTwoFactorAsync(
         VrchatTwoFactorRequest request,
         CancellationToken cancellationToken) =>
         SendAuthAsync(VrchatWorkerOperation.TwoFactor, request, cancellationToken);
 
-    public Task<VrchatAuthStatusResponse?> ResendEmailOtpAsync(CancellationToken cancellationToken) =>
+    public Task<VrchatWorkerAuthResult> ResendEmailOtpAsync(CancellationToken cancellationToken) =>
         SendAuthAsync(VrchatWorkerOperation.ResendEmailOtp, null, cancellationToken);
 
-    public Task<VrchatAuthStatusResponse?> LogoutAsync(CancellationToken cancellationToken) =>
+    public Task<VrchatWorkerAuthResult> LogoutAsync(CancellationToken cancellationToken) =>
         SendAuthAsync(VrchatWorkerOperation.Logout, null, cancellationToken);
 
     public async Task<PageResult<SearchDocument>?> SearchAsync(
@@ -276,22 +276,38 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
             : null;
     }
 
-    private async Task<VrchatAuthStatusResponse?> SendAuthAsync(
+    private async Task<VrchatWorkerAuthResult> SendAuthAsync(
         VrchatWorkerOperation operation,
         object? payload,
         CancellationToken cancellationToken)
     {
-        var workerResponse = await SendJsonAsync<VrchatWorkerResponse>(
+        var result = await SendJsonResultAsync<VrchatWorkerResponse>(
             operation,
             payload,
             MaximumAuthResponseBytes,
             cancellationToken);
-        return workerResponse is not null && IsValid(workerResponse)
-            ? ToPublicResponse(workerResponse)
-            : null;
+        return result.Response is not null && IsValid(result.Response)
+            ? new VrchatWorkerAuthResult(ToPublicResponse(result.Response))
+            : new VrchatWorkerAuthResult(null, result.Failure ?? VrchatWorkerAuthFailure.BadResponse, result.Reason);
     }
 
+    private sealed record WorkerJsonResult<T>(
+        T? Response,
+        VrchatWorkerAuthFailure? Failure = null,
+        string? Reason = null) where T : class;
+
     private async Task<TResponse?> SendJsonAsync<TResponse>(
+        VrchatWorkerOperation operation,
+        object? payload,
+        int maximumResponseBytes,
+        CancellationToken cancellationToken)
+        where TResponse : class
+    {
+        var result = await SendJsonResultAsync<TResponse>(operation, payload, maximumResponseBytes, cancellationToken);
+        return result.Response;
+    }
+
+    private async Task<WorkerJsonResult<TResponse>> SendJsonResultAsync<TResponse>(
         VrchatWorkerOperation operation,
         object? payload,
         int maximumResponseBytes,
@@ -311,36 +327,81 @@ internal sealed partial class VrchatWorkerClient(HttpClient client)
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken);
-            if (!response.IsSuccessStatusCode || response.Headers.Contains("Set-Cookie"))
+            if (response.Headers.Contains("Set-Cookie"))
             {
-                return null;
+                return new(null, VrchatWorkerAuthFailure.BadResponse);
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                var failure = await ReadControlFailureAsync(response, cancellationToken);
+                return new(null, failure.Failure, failure.Reason);
             }
 
             var mediaType = response.Content.Headers.ContentType?.MediaType;
             if (!string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                return new(null, VrchatWorkerAuthFailure.BadResponse);
             }
 
             var contentLength = response.Content.Headers.ContentLength;
             if (contentLength.HasValue && contentLength.Value > maximumResponseBytes)
             {
-                return null;
+                return new(null, VrchatWorkerAuthFailure.BadResponse);
             }
 
             await response.Content.LoadIntoBufferAsync(maximumResponseBytes, cancellationToken);
-            return await response.Content.ReadFromJsonAsync<TResponse>(
+            var body = await response.Content.ReadFromJsonAsync<TResponse>(
                 JsonOptions,
                 cancellationToken);
+            return new(body, body is null ? VrchatWorkerAuthFailure.BadResponse : null);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return null;
+            return new(null, VrchatWorkerAuthFailure.Timeout);
+        }
+        catch (HttpRequestException exception) when (
+            exception.InnerException is SocketException { SocketErrorCode: SocketError.ConnectionRefused })
+        {
+            return new(null, VrchatWorkerAuthFailure.Unavailable);
+        }
+        catch (SocketException exception) when (exception.SocketErrorCode == SocketError.ConnectionRefused)
+        {
+            return new(null, VrchatWorkerAuthFailure.Unavailable);
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException or JsonException or SocketException)
         {
-            return null;
+            return new(null, VrchatWorkerAuthFailure.BadResponse);
         }
+    }
+
+    private static async Task<VrchatWorkerAuthResult> ReadControlFailureAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        // A control timeout or malformed response is not evidence that the
+        // renderer is unavailable. Only validated fixed failures get a 503.
+        if (response.StatusCode is not (HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout) ||
+            !string.Equals(response.Content.Headers.ContentType?.MediaType, "application/json", StringComparison.OrdinalIgnoreCase) ||
+            response.Content.Headers.ContentLength is > MaximumAuthResponseBytes)
+        {
+            return new(null, VrchatWorkerAuthFailure.BadResponse);
+        }
+
+        await response.Content.LoadIntoBufferAsync(MaximumAuthResponseBytes, cancellationToken);
+        var failure = await response.Content.ReadFromJsonAsync<VrchatWorkerResponse>(JsonOptions, cancellationToken);
+        if (failure is null || failure.Ok || !IsValid(failure))
+        {
+            return new(null, VrchatWorkerAuthFailure.BadResponse);
+        }
+
+        return (response.StatusCode, failure.ErrorCode) switch
+        {
+            (HttpStatusCode.ServiceUnavailable, "renderer_unavailable") => new(null, VrchatWorkerAuthFailure.Unavailable),
+            (HttpStatusCode.ServiceUnavailable, "database_initialization_failed") =>
+                new(null, VrchatWorkerAuthFailure.Unavailable, "database_initialization_failed"),
+            (HttpStatusCode.GatewayTimeout, "renderer_timeout") => new(null, VrchatWorkerAuthFailure.Timeout),
+            _ => new(null, VrchatWorkerAuthFailure.BadResponse)
+        };
     }
 
     private static (HttpMethod Method, string Path) GetRequest(VrchatWorkerOperation operation) => operation switch

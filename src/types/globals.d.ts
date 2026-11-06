@@ -64,6 +64,7 @@ declare global {
             ) => () => void;
             respondServerAuthControl: (requestId: string, response: Record<string, unknown>) => void;
             markServerAuthControlReady: () => void;
+            reportServerStartupFailure: () => void;
             getArch: () => Promise<string>;
             getClipboardText: () => Promise<string>;
             getNoUpdater: () => Promise<boolean>;

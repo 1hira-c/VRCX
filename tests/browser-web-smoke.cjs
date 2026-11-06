@@ -290,6 +290,9 @@ async function startFixtureServer(state) {
         if (url.pathname.startsWith('/api/v1/')) {
             try {
                 const payload = fixture(url, state);
+                const statusFailure = url.pathname === '/api/v1/vrchat/auth/status' ? state.authStatusFailure : null;
+                if (url.pathname === '/api/v1/vrchat/auth/status')
+                    state.statusAttempts = (state.statusAttempts || 0) + 1;
                 response.setHeader('Cache-Control', 'no-store');
                 if (payload?.eventStream) {
                     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -299,10 +302,11 @@ async function startFixtureServer(state) {
                     response.on('close', () => clearInterval(timer));
                     return;
                 }
-                const body = JSON.stringify(payload);
-                response.writeHead(200, {
+                const body = JSON.stringify(statusFailure?.body || payload);
+                response.writeHead(statusFailure?.status || 200, {
                     'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(body)
+                    'Content-Length': Buffer.byteLength(body),
+                    ...(statusFailure?.retryAfter ? { 'Retry-After': statusFailure.retryAfter } : {})
                 });
                 response.end(body);
             } catch (error) {
@@ -351,9 +355,9 @@ async function startFixtureServer(state) {
     return { server, url: new URL(`http://127.0.0.1:${server.address().port}/`) };
 }
 
-async function createWindow(name, fingerprint, useFixtures, authenticated = true) {
+async function createWindow(name, fingerprint, useFixtures, authenticated = true, fixtureOverrides = {}) {
     progress(`${name}: create browser window`);
-    const fixtureState = { authenticated, stale: false };
+    const fixtureState = { authenticated, stale: false, ...fixtureOverrides };
     const fixtureServer = useFixtures ? await startFixtureServer(fixtureState) : null;
     const pageOrigin = fixtureServer?.url || target;
     const win = new BrowserWindow({
@@ -394,7 +398,14 @@ async function createWindow(name, fingerprint, useFixtures, authenticated = true
             }
         });
     }
-    win.webContents.on('console-message', ({ level, message }) => {
+    win.webContents.on('console-message', ({ level, message, sourceId }) => {
+        const expectedStatus = fixtureState.authStatusFailure?.status;
+        if (
+            expectedStatus &&
+            sourceId === `${pageOrigin.origin}/api/v1/vrchat/auth/status` &&
+            message.startsWith(`Failed to load resource: the server responded with a status of ${expectedStatus}`)
+        )
+            return;
         if (level === 'error') failures.push(`${name}: ${message}`);
     });
     win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
@@ -466,7 +477,18 @@ async function click(win, expression) {
     win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...rect });
 }
 
-async function checkpoint(win, name) {
+async function hover(win, expression) {
+    const point = await evaluate(
+        win,
+        `(() => {
+        const rect = (${expression}).getBoundingClientRect();
+        return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+    })()`
+    );
+    win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+}
+
+async function checkpoint(win, name, saveScreenshot = true) {
     progress(`checkpoint ${name}`);
     await new Promise((resolve) => setTimeout(resolve, 300));
     const result = await evaluate(
@@ -478,8 +500,10 @@ async function checkpoint(win, name) {
     assert.deepEqual(result.nativeGlobals, [], `${name}: native bridge reached the browser`);
     assert.deepEqual(result.errors, [], `${name}: browser exceptions`);
     assert.ok(result.textLength > 100, `${name}: blank or incomplete page`);
-    const screenshot = await win.webContents.capturePage();
-    await fs.writeFile(path.join(output, `${name}.png`), screenshot.toPNG());
+    if (saveScreenshot) {
+        const screenshot = await win.webContents.capturePage();
+        await fs.writeFile(path.join(output, `${name}.png`), screenshot.toPNG());
+    }
     checkpoints.push({ name, ...result });
 }
 
@@ -522,6 +546,58 @@ app.whenReady()
         );
         await checkpoint(unauthenticated, 'fixture-vrchat-login');
         unauthenticated.destroy();
+
+        // Negative GET-only scenarios never submit or retain login credentials.
+        const rateLimited = await createWindow('status-rate-limit', fingerprint, true, false, {
+            authStatusFailure: { status: 429, retryAfter: '60', body: { error: 'rate_limited' } }
+        });
+        await bounded(
+            rateLimited.loadURL(new URL('#/login', rateLimited.smokeUrl).href),
+            'load rate-limited status fixture'
+        );
+        await waitFor(
+            rateLimited,
+            `Boolean(document.querySelector('[data-testid="web-worker-unavailable"]')) && document.body.innerText.includes('要求が多すぎ')`,
+            'initial status 429 stays unknown and shows its actual error'
+        );
+        assert.equal(
+            await evaluate(rateLimited, `Boolean(document.querySelector('#login-form'))`),
+            false,
+            'Unknown status incorrectly requested VRChat credentials'
+        );
+        await checkpoint(rateLimited, 'fixture-initial-status-rate-limit', false);
+        assert.equal(rateLimited.smokeFixtureState.statusAttempts, 1, 'SSE ignored the Retry-After cooldown');
+        rateLimited.destroy();
+
+        const unavailable = await createWindow('worker-outage-tooltip', fingerprint, true, true, {
+            authStatusFailure: { status: 503, body: { error: 'vrchat_worker_unavailable' } }
+        });
+        await bounded(unavailable.loadURL(new URL('#/feed', unavailable.smokeUrl).href), 'load worker outage fixture');
+        await waitFor(
+            unavailable,
+            `document.querySelector('[data-testid="web-sync-status"]')?.getAttribute('data-sync-state') === 'worker_unavailable'`,
+            'confirmed worker outage retains the existing read view'
+        );
+        const outageButton = `Array.from(document.querySelectorAll('button[aria-disabled="true"]')).find(button => button.innerText.includes('VRChat'))`;
+        assert.equal(
+            await evaluate(unavailable, `(${outageButton}).disabled`),
+            false,
+            'Native disabled prevented the worker explanation tooltip'
+        );
+        await hover(unavailable, outageButton);
+        await waitFor(
+            unavailable,
+            `Array.from(document.querySelectorAll('[role="tooltip"]')).some(tooltip => tooltip.textContent.includes('background runtime is temporarily unavailable'))`,
+            'unavailable button still opens the explanation tooltip'
+        );
+        await evaluate(unavailable, `(${outageButton}).click()`);
+        assert.equal(
+            await evaluate(unavailable, 'location.hash'),
+            '#/feed',
+            'Unavailable status button initiated reauthentication'
+        );
+        await checkpoint(unavailable, 'fixture-worker-outage-tooltip', false);
+        unavailable.destroy();
 
         const fixtureWindow = await createWindow('fixtures', fingerprint, true);
         progress('fixtures: load original feed');

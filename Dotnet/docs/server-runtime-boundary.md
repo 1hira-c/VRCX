@@ -17,10 +17,22 @@ In server mode, the Electron main process:
 Renderer readiness follows the main document, not Electron's loading spinner. With a
 `file://` entry point, the original router's hash transitions also emit
 `did-start-loading`; these transitions must preserve the registered control handlers.
-Only a new main-frame document clears readiness. A missing ready handshake, crashed
-renderer, or unresponsive hidden window terminates the worker so the existing process
-supervisor can restart it. Browser-side worker availability is tracked separately from
-VRChat authentication; an internal 503 preserves the last known session and data.
+Only a committed new main-frame document clears readiness; canceled and failed
+navigations preserve it. Startup has no ready deadline because the original database
+migrations, VACUUM, and optimize can take a long time. A database initialization failure
+reports the fixed `database_initialization_failed` reason without waiting for a hidden
+desktop dialog or repeatedly restarting the migration. A crashed renderer terminates
+the worker so the existing process supervisor can restart it. Once ready, an unresponsive
+renderer has a 30-second grace period, canceled if it becomes responsive again.
+The database failure is retained for that worker process. After repairing its cause,
+restart the worker; browser reloads and VRChat reauthentication do not clear it.
+
+Browser-side worker availability is tracked separately from VRChat authentication.
+Only an explicit `503 vrchat_worker_unavailable` marks the worker unavailable and
+preserves the last known session and data. Other login/OTP failures stay on the auth
+form. Failed status reads retry after at least 30 seconds and respect `Retry-After`;
+credentials are never retried automatically. Status reads have a separate concurrency
+limit so polling cannot consume the login/OTP rate-limit budget.
 
 The server data directory must be supplied explicitly, for example:
 

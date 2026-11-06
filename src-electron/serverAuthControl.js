@@ -731,7 +731,13 @@ function parseBody(text) {
     return JSON.parse(text);
 }
 
-function createServerAuthControl({ host = CONTROL_HOST, port = CONTROL_PORT, isRendererReady, dispatch }) {
+function createServerAuthControl({
+    host = CONTROL_HOST,
+    port = CONTROL_PORT,
+    isRendererReady,
+    getUnavailableErrorCode = () => null,
+    dispatch
+}) {
     const server = http.createServer(async (request, response) => {
         let pathname;
         try {
@@ -775,7 +781,11 @@ function createServerAuthControl({ host = CONTROL_HOST, port = CONTROL_PORT, isR
         }
 
         if (!isRendererReady()) {
-            writeJson(response, 503, createErrorResponse('renderer_unavailable'));
+            const code =
+                getUnavailableErrorCode() === 'database_initialization_failed'
+                    ? 'database_initialization_failed'
+                    : 'renderer_unavailable';
+            writeJson(response, 503, createErrorResponse(code));
             return;
         }
 

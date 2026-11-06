@@ -3627,6 +3627,7 @@
                 "degraded": "Retrying sync",
                 "error": "Sync failed",
                 "worker_unavailable": "Reconnecting to VRCX",
+                "check_failed": "Could not check VRCX status",
                 "requires_authentication": "VRChat reauthentication required",
                 "not_configured": "Connect VRChat",
                 "stale": "Sync data is stale",
@@ -3642,6 +3643,7 @@
                 "degraded": "Retrying",
                 "error": "Sync failed",
                 "worker_unavailable": "Reconnecting",
+                "check_failed": "Status unknown",
                 "requires_authentication": "Reauthenticate",
                 "not_configured": "Not connected",
                 "stale": "Stale data",
@@ -3671,13 +3673,19 @@
             "status_tooltip": "VRChat: {status}. Click to reauthenticate.",
             "worker_unavailable_title": "Reconnecting to the background VRCX runtime",
             "worker_unavailable_description": "The background runtime is temporarily unavailable. Its authentication status cannot be confirmed yet. Saved history is retained; no new login is needed while reconnection is in progress.",
+            "worker_check_failed_title": "VRCX status could not be checked",
+            "worker_check_failed_description": "The last known session and history are retained. Status checks will retry after the server's retry delay; login credentials are not resent.",
+            "database_initialization_failed_title": "Database initialization failed",
+            "database_initialization_failed_description": "Check the VRCX database on the Docker host. Logging in again will not resolve this initialization error.",
             "status": {
                 "authenticated": "Authenticated",
                 "authenticating": "Authenticating",
                 "two_factor_required": "Waiting for 2FA",
                 "requires_authentication": "Reauthentication required",
                 "unknown": "Unknown status",
-                "worker_unavailable": "Reconnecting to VRCX"
+                "worker_unavailable": "Reconnecting to VRCX",
+                "check_failed": "Status check failed",
+                "database_initialization_failed": "Database initialization failed"
             }
         },
         "devices": {

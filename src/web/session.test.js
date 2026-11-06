@@ -66,6 +66,7 @@ beforeEach(() => {
     state.pendingRequests = 0;
     state.error = '';
     state.workerConnection = 'checking';
+    state.workerFailureReason = null;
     Object.assign(state.auth, { bootstrapped: false, authenticated: false, device: null, expiresAt: null });
     Object.assign(state.vrchatAuth, {
         ok: false,
@@ -132,6 +133,108 @@ afterEach(() => {
 });
 
 describe('webSession', () => {
+    it.each([
+        ['proxy 502', { status: 502 }],
+        ['login timeout', { status: 504 }],
+        ['unrelated 503', { status: 503, body: { error: 'upstream_unavailable' } }],
+        ['network failure', {}],
+        ['rate limit', { status: 429 }]
+    ])('does not turn a %s from login or OTP into a worker outage', async (_name, fields) => {
+        await webSession.initialize();
+        const auth = webSession.state.vrchatAuth;
+        const failure = Object.assign(new Error('Original authentication error'), fields);
+        webApi.loginVrchat.mockRejectedValueOnce(failure);
+        webApi.submitVrchatTwoFactor.mockRejectedValueOnce(failure);
+
+        await expect(webSession.loginVrchat('test-user', 'password-not-retried')).rejects.toBe(failure);
+        expect(webSession.state.workerConnection).toBe('available');
+        expect(webSession.state.vrchatAuth).toBe(auth);
+        expect(webSession.state.error).not.toContain('再接続');
+        await expect(webSession.submitVrchatTwoFactor('totp', '123456')).rejects.toBe(failure);
+        expect(webSession.state.workerConnection).toBe('available');
+        expect(webSession.state.vrchatAuth).toBe(auth);
+    });
+
+    it('retries an initial rate-limited status check after Retry-After without inferring an outage', async () => {
+        vi.useFakeTimers();
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(
+            Object.assign(new Error('Too many requests'), {
+                status: 429,
+                retryAfterMs: 75_000
+            })
+        );
+        await webSession.initialize();
+        expect(webSession.state.workerConnection).toBe('check_failed');
+        expect(webSession.state.vrchatAuth.status).toBe('unknown');
+        expect(webSession.state.error).toContain('要求が多すぎ');
+        const before = webApi.getVrchatAuthStatus.mock.calls.length;
+
+        MockEventSource.streams[0].emit('status');
+        await webSession.refreshVrchatAuth({ silent: true });
+        expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(before);
+        await vi.advanceTimersByTimeAsync(74_999);
+        expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(before);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(before + 1);
+        expect(webSession.state.workerConnection).toBe('available');
+        expect(webSession.state.error).toBe('');
+        expect(webApi.loginVrchat).not.toHaveBeenCalled();
+        expect(webApi.submitVrchatTwoFactor).not.toHaveBeenCalled();
+    });
+
+    it('shares an in-flight status check across SSE and retry callers', async () => {
+        await webSession.initialize();
+        let complete;
+        webApi.getVrchatAuthStatus.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    complete = resolve;
+                })
+        );
+        const before = webApi.getVrchatAuthStatus.mock.calls.length;
+        const first = webSession.refreshVrchatAuth({ silent: true });
+        const second = webSession.refreshVrchatAuth({ silent: true });
+        MockEventSource.streams[0].emit('status');
+        expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(before + 1);
+        complete({ ok: true, status: 'authenticated', currentUser: { id: 'usr_current' } });
+        await Promise.all([first, second]);
+        expect(webSession.state.workerConnection).toBe('available');
+    });
+
+    it('ignores a status result which arrives after administrator logout', async () => {
+        await webSession.initialize();
+        let rejectStatus;
+        webApi.getVrchatAuthStatus.mockImplementationOnce(
+            () =>
+                new Promise((_resolve, reject) => {
+                    rejectStatus = reject;
+                })
+        );
+        const pending = webSession.refreshVrchatAuth({ silent: true });
+        await webSession.logout();
+        rejectStatus(
+            Object.assign(new Error('Unavailable'), { status: 503, body: { error: 'vrchat_worker_unavailable' } })
+        );
+        await pending;
+        expect(webSession.state.auth.authenticated).toBe(false);
+        expect(webSession.state.workerConnection).toBe('available');
+        expect(webSession.state.error).toBe('');
+    });
+
+    it('explains database initialization failure without requesting new credentials', async () => {
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(
+            Object.assign(new Error('Unavailable'), {
+                status: 503,
+                body: { error: 'vrchat_worker_unavailable', reason: 'database_initialization_failed' }
+            })
+        );
+        await webSession.initialize();
+        expect(webSession.state.workerConnection).toBe('unavailable');
+        expect(webSession.state.workerFailureReason).toBe('database_initialization_failed');
+        expect(webSession.state.error).toContain('データベース');
+        expect(webApi.loginVrchat).not.toHaveBeenCalled();
+    });
+
     it('preserves confirmed authentication and saved history when the worker returns 503', async () => {
         await webSession.initialize();
         const auth = webSession.state.vrchatAuth;
@@ -157,7 +260,9 @@ describe('webSession', () => {
     });
 
     it('does not infer expired VRChat authentication from an initial worker outage', async () => {
-        webApi.getVrchatAuthStatus.mockRejectedValueOnce(Object.assign(new Error('Unavailable'), { status: 503 }));
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(
+            Object.assign(new Error('Unavailable'), { status: 503, body: { error: 'vrchat_worker_unavailable' } })
+        );
         webApi.getFriends.mockResolvedValueOnce({ items: [] });
 
         await webSession.initialize();
@@ -170,11 +275,13 @@ describe('webSession', () => {
     it('detects worker recovery with a bounded local status read without resubmitting credentials', async () => {
         vi.useFakeTimers();
         await webSession.initialize();
-        webApi.getVrchatAuthStatus.mockRejectedValueOnce(Object.assign(new Error('Unavailable'), { status: 503 }));
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(
+            Object.assign(new Error('Unavailable'), { status: 503, body: { error: 'vrchat_worker_unavailable' } })
+        );
         await webSession.refreshVrchatAuth({ silent: true });
         const statusCalls = webApi.getVrchatAuthStatus.mock.calls.length;
 
-        await vi.advanceTimersByTimeAsync(9_999);
+        await vi.advanceTimersByTimeAsync(29_999);
         expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(statusCalls);
         await vi.advanceTimersByTimeAsync(1);
 
@@ -190,7 +297,9 @@ describe('webSession', () => {
     it('stops worker reconnect status checks when the administrator logs out', async () => {
         vi.useFakeTimers();
         await webSession.initialize();
-        webApi.getVrchatAuthStatus.mockRejectedValueOnce(Object.assign(new Error('Unavailable'), { status: 503 }));
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(
+            Object.assign(new Error('Unavailable'), { status: 503, body: { error: 'vrchat_worker_unavailable' } })
+        );
         await webSession.refreshVrchatAuth({ silent: true });
         await webSession.logout();
         const statusCalls = webApi.getVrchatAuthStatus.mock.calls.length;

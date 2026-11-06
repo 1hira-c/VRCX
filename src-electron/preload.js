@@ -71,6 +71,9 @@ contextBridge.exposeInMainWorld('electron', {
             ipcRenderer.send('server-auth-control:ready');
         }
     },
+    reportServerStartupFailure: () => {
+        if (serverMode) ipcRenderer.send('server-auth-control:startup-failed');
+    },
     getArch: () => ipcRenderer.invoke('app:getArch'),
     getClipboardText: () => ipcRenderer.invoke('app:getClipboardText'),
     getNoUpdater: () => ipcRenderer.invoke('app:getNoUpdater'),

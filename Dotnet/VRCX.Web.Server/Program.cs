@@ -60,6 +60,13 @@ builder.Services.AddRateLimiter(options =>
         limiter.QueueLimit = 0;
         limiter.AutoReplenishment = true;
     });
+    // This is a local renderer-state read, not a VRChat request. Bound its
+    // concurrent work without spending the login/2FA fixed-window budget.
+    options.AddConcurrencyLimiter(VrchatWorkerEndpoints.StatusRateLimitPolicy, limiter =>
+    {
+        limiter.PermitLimit = 8;
+        limiter.QueueLimit = 0;
+    });
     options.AddFixedWindowLimiter(VrcxSnapshotUploadEndpoints.RateLimitPolicy, limiter =>
     {
         limiter.PermitLimit = 5;

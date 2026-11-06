@@ -3183,6 +3183,7 @@
                 "degraded": "同期を再試行中",
                 "error": "同期に失敗",
                 "worker_unavailable": "常駐VRCXへ再接続中",
+                "check_failed": "常駐VRCXの状態を確認できません",
                 "requires_authentication": "VRChatの再認証が必要",
                 "not_configured": "VRChatを接続してください",
                 "stale": "同期データが古くなっています",
@@ -3198,6 +3199,7 @@
                 "degraded": "再試行中",
                 "error": "同期失敗",
                 "worker_unavailable": "再接続中",
+                "check_failed": "状態不明",
                 "requires_authentication": "再認証が必要",
                 "not_configured": "未接続",
                 "stale": "古いデータ",
@@ -3227,13 +3229,19 @@
             "status_tooltip": "VRChat: {status}。クリックして再認証します。",
             "worker_unavailable_title": "常駐VRCXへ再接続しています",
             "worker_unavailable_description": "常駐処理に一時的に接続できず、認証状態を確認できていません。保存済みの履歴は維持されています。再接続中にログインし直す必要はありません。",
+            "worker_check_failed_title": "常駐VRCXの状態を確認できませんでした",
+            "worker_check_failed_description": "最後に確認した認証状態と履歴は保持しています。サーバーの待機時間に従って状態確認を再試行します。ログイン情報は再送信しません。",
+            "database_initialization_failed_title": "データベースの初期化に失敗しました",
+            "database_initialization_failed_description": "Dockerホスト上のVRCXデータベースを確認してください。ログインし直しても、この初期化エラーは解消しません。",
             "status": {
                 "authenticated": "認証済み",
                 "authenticating": "認証中",
                 "two_factor_required": "2FA入力待ち",
                 "requires_authentication": "再認証が必要",
                 "unknown": "状態不明",
-                "worker_unavailable": "常駐VRCXへ再接続中"
+                "worker_unavailable": "常駐VRCXへ再接続中",
+                "check_failed": "状態確認に失敗",
+                "database_initialization_failed": "DB初期化失敗"
             }
         },
         "devices": {
