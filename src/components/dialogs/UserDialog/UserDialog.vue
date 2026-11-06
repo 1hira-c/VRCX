@@ -104,6 +104,7 @@
     import { showAvatarDialog, showAvatarAuthorDialog } from '../../../coordinators/avatarCoordinator';
     import { showUserDialog, refreshUserDialogAvatars } from '../../../coordinators/userCoordinator';
     import { getFriendRequest, handleFriendDelete } from '../../../coordinators/friendRelationshipCoordinator';
+    import { platformCapabilities } from '../../../web/platform';
 
     import DialogJsonTab from '../DialogJsonTab.vue';
     import SendInviteDialog from '../InviteDialog/SendInviteDialog.vue';
@@ -132,20 +133,26 @@
 
     const { t } = useI18n();
     const userDialogTabs = computed(() => {
-        const tabs = [
-            { value: 'Info', label: t('dialog.user.info.header') },
-            { value: 'Groups', label: t('dialog.user.groups.header') },
-            { value: 'Worlds', label: t('dialog.user.worlds.header') },
-            { value: 'favorite-worlds', label: t('dialog.user.favorite_worlds.header') },
-            { value: 'Avatars', label: t('dialog.user.avatars.header') },
-            { value: 'JSON', label: t('dialog.user.json.header') }
-        ];
-        if (userDialog.value.id !== currentUser.value.id && !currentUser.value.hasSharedConnectionsOptOut) {
-            tabs.splice(1, 0, { value: 'mutual', label: t('dialog.user.mutual_friends.header') });
+        const tabs = [{ value: 'Info', label: t('dialog.user.info.header') }];
+        if (
+            platformCapabilities.mutualConnections &&
+            userDialog.value.id !== currentUser.value.id &&
+            !currentUser.value.hasSharedConnectionsOptOut
+        ) {
+            tabs.push({ value: 'mutual', label: t('dialog.user.mutual_friends.header') });
         }
-        // Insert Activity before JSON
-        const jsonIdx = tabs.findIndex((tab) => tab.value === 'JSON');
-        tabs.splice(jsonIdx, 0, { value: 'Activity', label: t('dialog.user.activity.header') });
+        if (platformCapabilities.userRelatedResources) {
+            tabs.push(
+                { value: 'Groups', label: t('dialog.user.groups.header') },
+                { value: 'Worlds', label: t('dialog.user.worlds.header') },
+                { value: 'favorite-worlds', label: t('dialog.user.favorite_worlds.header') },
+                { value: 'Avatars', label: t('dialog.user.avatars.header') }
+            );
+        }
+        if (platformCapabilities.activityDetails) {
+            tabs.push({ value: 'Activity', label: t('dialog.user.activity.header') });
+        }
+        tabs.push({ value: 'JSON', label: t('dialog.user.json.header') });
         return tabs;
     });
     const infoTabRef = ref(null);

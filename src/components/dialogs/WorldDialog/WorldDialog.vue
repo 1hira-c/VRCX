@@ -50,7 +50,9 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="grid grid-cols-2 flex-none items-center justify-end gap-2 self-start">
+                            <div
+                                v-if="platformCapabilities.vrchatMutations"
+                                class="grid grid-cols-2 flex-none items-center justify-end gap-2 self-start">
                                 <TooltipWrapper
                                     v-if="worldDialog.isFavorite"
                                     side="top"
@@ -285,7 +287,7 @@
                                 {{ t('dialog.world.tags.future_proofing') }}
                             </Badge>
                             <Badge
-                                v-if="worldDialog.inCache"
+                                v-if="platformCapabilities.desktopIntegration && worldDialog.inCache"
                                 variant="outline"
                                 class="cursor-pointer"
                                 @click="openFolderGeneric(worldDialog.cachePath)">
@@ -351,7 +353,7 @@
             </TabsUnderline>
         </div>
 
-        <template v-if="isDialogVisible">
+        <template v-if="isDialogVisible && platformCapabilities.vrchatMutations">
             <WorldAllowedDomainsDialog :world-allowed-domains-dialog="worldAllowedDomainsDialog" />
             <SetWorldTagsDialog
                 v-model:is-set-world-tags-dialog-visible="isSetWorldTagsDialogVisible"
@@ -443,6 +445,7 @@
     import WorldDialogInstancesTab from './WorldDialogInstancesTab.vue';
     import WorldDialogStoreTab from './WorldDialogStoreTab.vue';
     import { showUserDialog } from '../../../coordinators/userCoordinator';
+    import { platformCapabilities } from '../../../web/platform';
 
     import NewInstanceDialog from '../NewInstanceDialog/NewInstanceDialog.vue';
     import SetWorldTagsDialog from './SetWorldTagsDialog.vue';
@@ -500,7 +503,9 @@
 
     const worldDialogTabs = computed(() => [
         { value: 'Instances', label: t('dialog.world.instances.header') },
-        ...(worldDialog.value.ref.storeId ? [{ value: 'Store', label: t('dialog.world.store.header') }] : []),
+        ...(platformCapabilities.store && worldDialog.value.ref.storeId
+            ? [{ value: 'Store', label: t('dialog.world.store.header') }]
+            : []),
         { value: 'JSON', label: t('dialog.world.json.header') }
     ]);
 

@@ -14,7 +14,62 @@
                             -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent 100%);
                         ">
                         <TooltipWrapper
-                            v-if="!isLinux && visibility.proxy"
+                            v-if="platformCapabilities.serverSession"
+                            :content="webVrchatTooltip"
+                            side="top">
+                            <button
+                                type="button"
+                                class="flex items-center gap-1 px-2 h-[22px] whitespace-nowrap border-r border-border cursor-pointer hover:bg-accent"
+                                @click="handleWebVrchatClick">
+                                <span class="inline-block size-2 rounded-full shrink-0" :class="webVrchatStatusDot" />
+                                <span class="text-foreground text-[11px]">VRChat</span>
+                                <span class="hidden sm:inline text-[10px] text-muted-foreground">{{
+                                    webVrchatStatusLabel
+                                }}</span>
+                            </button>
+                        </TooltipWrapper>
+
+                        <TooltipWrapper v-if="platformCapabilities.serverSession" :content="webSyncTooltip" side="top">
+                            <div
+                                data-testid="web-sync-status"
+                                :data-stale="String(webSyncView.stale)"
+                                :data-sync-state="webSyncView.state"
+                                class="flex items-center gap-1 px-2 h-[22px] whitespace-nowrap border-r border-border text-[10px]"
+                                :aria-label="webSyncTooltip">
+                                <span
+                                    class="inline-block size-2 rounded-full shrink-0"
+                                    :class="statusDot(webSyncView.tone)" />
+                                <span class="hidden sm:inline">{{ t(webSyncView.labelKey) }}</span>
+                                <span class="sm:hidden">{{ t(webSyncView.compactLabelKey) }}</span>
+                                <span class="text-muted-foreground">{{ t('web.sync.last_success_short') }}</span>
+                                <time
+                                    v-if="webSyncView.lastSuccessAt"
+                                    :datetime="webSyncView.lastSuccessAt"
+                                    data-testid="web-sync-last-success">
+                                    {{ webSyncLastTime }}
+                                </time>
+                                <span v-else>{{ t('web.sync.never') }}</span>
+                                <span
+                                    class="ml-1 inline-block size-1.5 rounded-full shrink-0"
+                                    :class="statusDot(webPipelineView.tone)" />
+                                <span :data-connection-state="webPipelineView.state" data-testid="web-pipeline-status">
+                                    <span class="hidden sm:inline">Pipeline {{ t(webPipelineView.labelKey) }}</span>
+                                    <span class="sm:hidden">P</span>
+                                </span>
+                                <span
+                                    class="ml-1 inline-block size-1.5 rounded-full shrink-0"
+                                    :class="statusDot(webEventsView.tone)" />
+                                <span :data-connection-state="webEventsView.state" data-testid="web-events-status">
+                                    <span class="hidden sm:inline"
+                                        >{{ t('web.sync.events') }} {{ t(webEventsView.labelKey) }}</span
+                                    >
+                                    <span class="sm:hidden">UI</span>
+                                </span>
+                            </div>
+                        </TooltipWrapper>
+
+                        <TooltipWrapper
+                            v-if="platformCapabilities.desktopIntegration && !isLinux && visibility.proxy"
                             :content="
                                 vrcxStore.proxyServer
                                     ? `${t('status_bar.proxy')}: ${vrcxStore.proxyServer}`
@@ -34,7 +89,7 @@
                         </TooltipWrapper>
 
                         <TooltipWrapper
-                            v-if="!isMacOS && visibility.steamvr"
+                            v-if="platformCapabilities.localGameIntegration && !isMacOS && visibility.steamvr"
                             :content="
                                 gameStore.isSteamVRRunning
                                     ? t('status_bar.steamvr_running')
@@ -52,7 +107,7 @@
                         </TooltipWrapper>
 
                         <HoverCard
-                            v-if="!isMacOS && visibility.vrchat"
+                            v-if="platformCapabilities.localGameIntegration && !isMacOS && visibility.vrchat"
                             v-model:open="gameHoverOpen"
                             :open-delay="50"
                             :close-delay="50">
@@ -114,7 +169,9 @@
                             </HoverCardContent>
                         </HoverCard>
 
-                        <HoverCard v-if="visibility.servers" v-model:open="serversHoverOpen">
+                        <HoverCard
+                            v-if="!platformCapabilities.serverSession && visibility.servers"
+                            v-model:open="serversHoverOpen">
                             <HoverCardTrigger as-child>
                                 <TooltipWrapper
                                     v-if="!vrcStatusStore.hasIssue"
@@ -157,7 +214,10 @@
                             </HoverCardContent>
                         </HoverCard>
 
-                        <TooltipWrapper v-if="visibility.ws" :content="wsTooltip" side="top">
+                        <TooltipWrapper
+                            v-if="!platformCapabilities.serverSession && visibility.ws"
+                            :content="wsTooltip"
+                            side="top">
                             <div class="flex items-center gap-1 px-2 h-[22px] whitespace-nowrap border-r border-border">
                                 <span
                                     class="inline-block size-2 rounded-full shrink-0"
@@ -171,7 +231,7 @@
                         </TooltipWrapper>
 
                         <div
-                            v-if="visibility.nowPlaying && nowPlaying.url"
+                            v-if="platformCapabilities.localGameIntegration && visibility.nowPlaying && nowPlaying.url"
                             class="flex items-center gap-1 px-2 h-[22px] whitespace-nowrap border-r border-border min-w-0 max-w-[400px]">
                             <i v-if="!isYouTubeNowPlaying" class="ri-play-fill text-[10px] shrink-0" />
                             <i v-if="isYouTubeNowPlaying" class="ri-youtube-fill text-[#FF0000] shrink-0 text-[12px]" />
@@ -214,7 +274,9 @@
                     </div>
 
                     <!-- Right section -->
-                    <div class="flex items-center shrink-0 ml-auto [&>*:last-child]:border-r-0 [&>*:last-child]:pr-0.5">
+                    <div
+                        class="flex items-center shrink-0 ml-auto [&>*:last-child]:border-r-0 [&>*:last-child]:pr-0.5"
+                        :class="{ 'max-sm:hidden': platformCapabilities.serverSession }">
                         <template v-if="visibility.clocks">
                             <Popover
                                 v-for="(clock, idx) in visibleClocks"
@@ -254,7 +316,7 @@
                         </template>
 
                         <TooltipWrapper
-                            v-if="visibility.zoom"
+                            v-if="platformCapabilities.nativeWindow && visibility.zoom"
                             :content="t('status_bar.zoom_tooltip')"
                             side="top"
                             :disabled="zoomEditing">
@@ -298,38 +360,42 @@
 
             <ContextMenuContent>
                 <ContextMenuCheckboxItem
-                    v-if="!isMacOS"
+                    v-if="platformCapabilities.localGameIntegration && !isMacOS"
                     :model-value="visibility.vrchat"
                     @select.prevent
                     @update:model-value="toggleVisibility('vrchat')">
                     {{ t('status_bar.game') }}
                 </ContextMenuCheckboxItem>
                 <ContextMenuCheckboxItem
+                    v-if="!platformCapabilities.serverSession"
                     :model-value="visibility.servers"
                     @select.prevent
                     @update:model-value="toggleVisibility('servers')">
                     {{ t('status_bar.servers') }}
                 </ContextMenuCheckboxItem>
                 <ContextMenuCheckboxItem
-                    v-if="!isMacOS"
+                    v-if="platformCapabilities.localGameIntegration && !isMacOS"
                     :model-value="visibility.steamvr"
                     @select.prevent
                     @update:model-value="toggleVisibility('steamvr')">
                     {{ t('status_bar.steamvr') }}
                 </ContextMenuCheckboxItem>
                 <ContextMenuCheckboxItem
+                    v-if="platformCapabilities.desktopIntegration"
                     :model-value="visibility.proxy"
                     @select.prevent
                     @update:model-value="toggleVisibility('proxy')">
                     {{ t('status_bar.proxy') }}
                 </ContextMenuCheckboxItem>
                 <ContextMenuCheckboxItem
+                    v-if="!platformCapabilities.serverSession"
                     :model-value="visibility.ws"
                     @select.prevent
                     @update:model-value="toggleVisibility('ws')">
                     WebSocket
                 </ContextMenuCheckboxItem>
                 <ContextMenuCheckboxItem
+                    v-if="platformCapabilities.localGameIntegration"
                     :model-value="visibility.nowPlaying"
                     @select.prevent
                     @update:model-value="toggleVisibility('nowPlaying')">
@@ -342,7 +408,7 @@
                     {{ t('status_bar.app_uptime_short') }}
                 </ContextMenuCheckboxItem>
                 <ContextMenuCheckboxItem
-                    v-if="!isMacOS"
+                    v-if="platformCapabilities.nativeWindow && !isMacOS"
                     :model-value="visibility.zoom"
                     @select.prevent
                     @update:model-value="toggleVisibility('zoom')">
@@ -408,6 +474,7 @@
         useGameLogStore,
         useGameStore,
         useGeneralSettingsStore,
+        useModalStore,
         useUserStore,
         useVrcStatusStore,
         useVrcxStore
@@ -418,8 +485,12 @@
     import { useIntervalFn, useNow } from '@vueuse/core';
     import { TooltipWrapper } from '@/components/ui/tooltip';
     import { useI18n } from 'vue-i18n';
+    import { useRouter } from 'vue-router';
     import { openExternalLink } from '@/shared/utils/appActions';
     import { wsState } from '@/services/websocket';
+    import { platformCapabilities } from '@/web/platform';
+    import { webSession } from '@/web/session';
+    import { connectionStatusPresentation, syncStatusPresentation } from '@/web/syncStatus';
 
     import dayjs from 'dayjs';
     import timezone from 'dayjs/plugin/timezone';
@@ -440,6 +511,74 @@
     dayjs.extend(timezone);
 
     const { t } = useI18n();
+    const router = useRouter();
+    const modalStore = useModalStore();
+
+    const webVrchatStatusLabel = computed(() => {
+        const statusKey =
+            {
+                authenticated: 'authenticated',
+                authenticating: 'authenticating',
+                two_factor_required: 'two_factor_required',
+                requires_authentication: 'requires_authentication'
+            }[webSession.state.vrchatAuth.status] || 'unknown';
+        return t(`web.vrchat.status.${statusKey}`);
+    });
+    const webVrchatStatusDot = computed(() => {
+        if (webSession.state.vrchatAuth.status === 'authenticated') return 'bg-status-online';
+        if (webSession.state.vrchatAuth.status === 'authenticating') return 'bg-status-askme';
+        return 'bg-status-offline-alt';
+    });
+    const webVrchatTooltip = computed(() => t('web.vrchat.status_tooltip', { status: webVrchatStatusLabel.value }));
+    const webSyncView = computed(() => syncStatusPresentation(webSession.state.status));
+    const webPipelineView = computed(() => connectionStatusPresentation(webSession.state.status?.pipeline?.state));
+    const webEventsView = computed(() => connectionStatusPresentation(webSession.state.eventsConnection));
+    const webSyncLastTime = computed(() => dayjs(webSyncView.value.lastSuccessAt).format('HH:mm'));
+    const webSyncTooltip = computed(() =>
+        [
+            t(webSyncView.value.labelKey),
+            t('web.sync.last_success', {
+                time: webSyncView.value.lastSuccessAt
+                    ? dayjs(webSyncView.value.lastSuccessAt).format('YYYY-MM-DD HH:mm:ss Z')
+                    : t('web.sync.never')
+            }),
+            `Pipeline: ${t(webPipelineView.value.labelKey)}`,
+            `${t('web.sync.events')}: ${t(webEventsView.value.labelKey)}`
+        ].join('\n')
+    );
+
+    function statusDot(tone) {
+        return {
+            success: 'bg-status-online',
+            warning: 'bg-status-askme',
+            error: 'bg-destructive',
+            neutral: 'bg-status-offline-alt'
+        }[tone];
+    }
+
+    async function handleWebVrchatClick() {
+        const reauthRoute = {
+            name: 'login',
+            query: { reauth: '1', redirect: router.currentRoute.value.fullPath }
+        };
+        if (webSession.state.vrchatAuth.status !== 'authenticated') {
+            await router.push(reauthRoute);
+            return;
+        }
+
+        const { ok } = await modalStore.confirm({
+            title: t('web.vrchat.reauth_title'),
+            description: t('web.vrchat.reauth_description')
+        });
+        if (!ok) return;
+
+        try {
+            await webSession.logoutVrchat();
+            await router.replace(reauthRoute);
+        } catch {
+            // The shared Web session state exposes a safe error to the login screen.
+        }
+    }
 
     const isMacOS = computed(() => navigator.platform.includes('Mac'));
     const isLinux = computed(() => LINUX);
@@ -727,7 +866,9 @@
         }
     });
 
-    initGetZoomLevel();
+    if (platformCapabilities.nativeWindow) {
+        initGetZoomLevel();
+    }
 
     watch(
         () => visibility.ws,

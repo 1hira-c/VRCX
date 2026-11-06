@@ -31,10 +31,39 @@ declare global {
         crypto: any;
         sqliteService: any;
         isVrOverlay: boolean;
+        runtimeCapabilities: {
+            serverMode: boolean;
+            desktopIntegration: boolean;
+            gameProcessMonitoring: boolean;
+            logWatcher: boolean;
+            vrOverlay: boolean;
+            discord: boolean;
+            selfUpdate: boolean;
+            vrchatMutationAutomation: boolean;
+            customRendererExtensions: boolean;
+        };
         interopApi: {
             callDotNetMethod: (className: any, methodName: any, args: any) => Promise<any>;
         };
         electron: {
+            onServerAuthControlRequest: (
+                callback: (request: {
+                    requestId: string;
+                    operation:
+                        | 'status'
+                        | 'login'
+                        | 'two-factor'
+                        | 'email-resend'
+                        | 'logout'
+                        | 'search'
+                        | 'entity'
+                        | 'entity-resource'
+                        | 'database-read';
+                    payload: Record<string, unknown>;
+                }) => void
+            ) => () => void;
+            respondServerAuthControl: (requestId: string, response: Record<string, unknown>) => void;
+            markServerAuthControlReady: () => void;
             getArch: () => Promise<string>;
             getClipboardText: () => Promise<string>;
             getNoUpdater: () => Promise<boolean>;
@@ -114,6 +143,7 @@ declare global {
         ExecuteJson: (sql: string, args: string) => Promise<string>;
         ExecuteNonQuery: (sql: string, args: string) => Promise<Number>;
         ExecuteInsert: (sql: string, args: string) => Promise<Number>;
+        ExecuteTransactionJson: (operationsJson: string) => Promise<number>;
     };
 
     const LogWatcher: {

@@ -26,6 +26,7 @@ import { useModalStore } from './modal';
 import { syncFriendSearchIndex } from '../coordinators/searchIndexCoordinator';
 import { useUiStore } from './ui';
 import { watchState } from '../services/watchState';
+import { isWebPlatform, platformCapabilities } from '../web/platform.js';
 
 import * as workerTimers from 'worker-timers';
 
@@ -33,9 +34,9 @@ export const useUserStore = defineStore('User', () => {
     const appearanceSettingsStore = useAppearanceSettingsStore();
     const friendStore = useFriendStore();
     const locationStore = useLocationStore();
-    const instanceStore = useInstanceStore();
+    const instanceStore = isWebPlatform ? null : useInstanceStore();
     const modalStore = useModalStore();
-    const uiStore = useUiStore();
+    const uiStore = isWebPlatform ? null : useUiStore();
     const { t } = useI18n();
 
     const currentUser = ref(
@@ -470,7 +471,7 @@ export const useUserStore = defineStore('User', () => {
                 customUserTags.clear();
                 state.notes.clear();
                 subsetOfLanguages.value = [];
-                uiStore.clearDialogCrumbs();
+                uiStore?.clearDialogCrumbs();
             }
         },
         { flush: 'sync' }
@@ -479,10 +480,9 @@ export const useUserStore = defineStore('User', () => {
     watch(
         () => watchState.isFriendsLoaded,
         (isFriendsLoaded) => {
-            if (isFriendsLoaded) {
-                getAllUserMemos();
-                initUserNotes();
-            }
+            if (!isFriendsLoaded) return;
+            if (platformCapabilities.memos) getAllUserMemos();
+            if (platformCapabilities.userNotes) initUserNotes();
         },
         { flush: 'sync' }
     );
@@ -541,7 +541,7 @@ export const useUserStore = defineStore('User', () => {
             return;
         }
         const L = parseLocation(D.ref.$location?.tag);
-        if (updateInstanceOccupants && L.isRealInstance) {
+        if (platformCapabilities.activityDetails && updateInstanceOccupants && L.isRealInstance) {
             instanceRequest.getInstance({
                 worldId: L.worldId,
                 instanceId: L.instanceId
@@ -551,7 +551,7 @@ export const useUserStore = defineStore('User', () => {
         L.user = {};
         if (L.userId) {
             ref = cachedUsers.get(L.userId);
-            if (typeof ref === 'undefined') {
+            if (typeof ref === 'undefined' && !isWebPlatform) {
                 userRequest
                     .getUser({
                         userId: L.userId
@@ -637,7 +637,7 @@ export const useUserStore = defineStore('User', () => {
                 ref: {}
             };
         }
-        const instanceRef = instanceStore.cachedInstances.get(L.tag) || {};
+        const instanceRef = instanceStore?.cachedInstances.get(L.tag) || {};
         Object.assign(D.instance.ref, instanceRef);
         D.instance.friendCount = friendCount;
     }
@@ -665,6 +665,7 @@ export const useUserStore = defineStore('User', () => {
     }
 
     async function initUserNotes() {
+        if (!platformCapabilities.userNotes) return;
         state.lastNoteCheck = new Date();
         state.lastDbNoteDate = null;
         state.notes.clear();
@@ -1015,7 +1016,7 @@ export const useUserStore = defineStore('User', () => {
     watch(
         () => watchState.isLoggedIn,
         (isLoggedIn) => {
-            if (isLoggedIn) {
+            if (isLoggedIn && !isWebPlatform) {
                 getCosmetics();
                 getClientConfig();
                 getAllProductPurchases();

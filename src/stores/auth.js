@@ -22,6 +22,9 @@ import { useUpdateLoopStore } from './updateLoop';
 import { useUserStore } from './user';
 import { useVrcxStore } from './vrcx';
 import { watchState } from '../services/watchState';
+import { runtimeCapabilities } from '../services/runtimeCapabilities';
+import { isWebPlatform } from '../web/platform.js';
+import { webSession } from '../web/session';
 
 import configRepository from '../services/config';
 import security from '../services/security';
@@ -48,7 +51,7 @@ export const useAuthStore = defineStore('Auth', () => {
         password: '',
         endpoint: '',
         websocket: '',
-        saveCredentials: true,
+        saveCredentials: !isWebPlatform,
         lastUserLoggedIn: ''
     });
 
@@ -65,6 +68,9 @@ export const useAuthStore = defineStore('Auth', () => {
     const credentialsToSave = ref(null);
 
     const twoFactorAuthDialogVisible = ref(false);
+    // The hidden renderer cannot display an OTP modal. Server mode exposes the
+    // same challenge through its typed loopback control and keeps desktop flow unchanged.
+    const serverAuthChallenge = ref(null);
 
     /** @type {import('vue').Ref<any>} */
     const cachedConfig = ref({});
@@ -96,6 +102,7 @@ export const useAuthStore = defineStore('Auth', () => {
             twoFactorAuthDialogVisible.value = false;
             if (isLoggedIn) {
                 resetLoginNetworkIssueHintState();
+                if (isWebPlatform || !currentUser?.id) return;
                 updateStoredUser(currentUser);
                 new Noty({
                     type: 'success',
@@ -113,9 +120,11 @@ export const useAuthStore = defineStore('Auth', () => {
     watch(
         () => watchState.isFriendsLoaded,
         (isFriendsLoaded) => {
-            if (isFriendsLoaded) {
+            if (isFriendsLoaded && !isWebPlatform) {
                 initWebsocket();
-                AppApi.IPCAnnounceStart();
+                if (runtimeCapabilities.desktopIntegration) {
+                    AppApi.IPCAnnounceStart();
+                }
             }
         },
         { flush: 'sync' }
@@ -133,6 +142,7 @@ export const useAuthStore = defineStore('Auth', () => {
     init();
 
     async function getAllSavedCredentials() {
+        if (isWebPlatform || runtimeCapabilities.serverMode) return {};
         let savedCredentials = {};
         try {
             savedCredentials = JSON.parse(await configRepository.getString('savedCredentials', '{}'));
@@ -228,6 +238,16 @@ export const useAuthStore = defineStore('Auth', () => {
     }
 
     async function resendEmail2fa() {
+        if (isWebPlatform) {
+            try {
+                const result = await webSession.resendVrchatEmailOtp();
+                toast.success(t('message.auth.email_2fa_resent'));
+                handleWebVrchatAuth(result);
+            } catch {
+                toast.error(t('message.auth.email_2fa_no_credentials'));
+            }
+            return;
+        }
         if (loginForm.value.lastUserLoggedIn) {
             const user = await getSavedCredentials(loginForm.value.lastUserLoggedIn);
             if (user) {
@@ -386,6 +406,15 @@ export const useAuthStore = defineStore('Auth', () => {
      * @param user
      */
     async function updateStoredUser(user) {
+        if (isWebPlatform) return;
+        if (runtimeCapabilities.serverMode) {
+            // Server mode persists only the encrypted cookie jar in WebApi.
+            // Keep the non-secret account id so the original startup flow can
+            // retry auth/user with that cookie after a restart.
+            loginForm.value.lastUserLoggedIn = user.id;
+            await configRepository.setString('lastUserLoggedIn', user.id);
+            return;
+        }
         const savedCredentials = await getAllSavedCredentials();
         if (credentialsToSave.value) {
             savedCredentials[user.id] = {
@@ -411,12 +440,14 @@ export const useAuthStore = defineStore('Auth', () => {
     }
 
     function queueSaveCredentials() {
+        if (isWebPlatform || runtimeCapabilities.serverMode) return;
         if (loginForm.value.saveCredentials) {
             credentialsToSave.value = {};
         }
     }
 
     async function migrateStoredUsers() {
+        if (runtimeCapabilities.serverMode) return;
         const savedCredentials = await getAllSavedCredentials();
         for (const name in savedCredentials) {
             const userId = savedCredentials[name]?.user?.id;
@@ -571,6 +602,9 @@ export const useAuthStore = defineStore('Auth', () => {
     }
 
     async function login() {
+        if (isWebPlatform) {
+            return loginWeb();
+        }
         // TODO: remove/refactor saveCredentials & primaryPassword (security)
         await webApiService.clearCookies();
         if (!loginForm.value.loading) {
@@ -655,7 +689,7 @@ export const useAuthStore = defineStore('Auth', () => {
         if (twoFactorAuthDialogVisible.value) {
             return;
         }
-        AppApi.FlashWindow();
+        if (!isWebPlatform) AppApi.FlashWindow();
         twoFactorAuthDialogVisible.value = true;
         modalStore
             .otpPrompt({
@@ -665,14 +699,23 @@ export const useAuthStore = defineStore('Auth', () => {
                 cancelText: t('prompt.totp.use_otp'),
                 confirmText: t('prompt.totp.verify')
             })
-            .then(({ ok, reason, value }) => {
+            .then(async ({ ok, reason, value }) => {
                 twoFactorAuthDialogVisible.value = false;
 
                 if (reason === 'cancel') {
-                    promptOTP();
+                    if (!isWebPlatform || webChallengeIncludes('otp')) promptOTP();
                     return;
                 }
                 if (!ok) return;
+
+                if (isWebPlatform) {
+                    try {
+                        handleWebVrchatAuth(await webSession.submitVrchatTwoFactor('totp', value.trim()));
+                    } catch {
+                        promptTOTP();
+                    }
+                    return;
+                }
 
                 authRequest
                     .verifyTOTP({
@@ -704,14 +747,26 @@ export const useAuthStore = defineStore('Auth', () => {
                 cancelText: t('prompt.otp.use_totp'),
                 confirmText: t('prompt.otp.verify')
             })
-            .then(({ ok, reason, value }) => {
+            .then(async ({ ok, reason, value }) => {
                 twoFactorAuthDialogVisible.value = false;
 
                 if (reason === 'cancel') {
-                    promptTOTP();
+                    if (!isWebPlatform || webChallengeIncludes('totp')) promptTOTP();
                     return;
                 }
                 if (!ok) return;
+
+                if (isWebPlatform) {
+                    const code = value.replaceAll('-', '').trim();
+                    try {
+                        handleWebVrchatAuth(
+                            await webSession.submitVrchatTwoFactor('otp', code.slice(0, 4) + '-' + code.slice(4))
+                        );
+                    } catch {
+                        promptOTP();
+                    }
+                    return;
+                }
 
                 authRequest
                     .verifyOTP({
@@ -734,7 +789,7 @@ export const useAuthStore = defineStore('Auth', () => {
         if (twoFactorAuthDialogVisible.value) {
             return;
         }
-        AppApi.FlashWindow();
+        if (!isWebPlatform) AppApi.FlashWindow();
         twoFactorAuthDialogVisible.value = true;
         modalStore
             .otpPrompt({
@@ -744,7 +799,7 @@ export const useAuthStore = defineStore('Auth', () => {
                 cancelText: t('prompt.email_otp.resend'),
                 confirmText: t('prompt.email_otp.verify')
             })
-            .then(({ ok, reason, value }) => {
+            .then(async ({ ok, reason, value }) => {
                 twoFactorAuthDialogVisible.value = false;
 
                 if (reason === 'cancel') {
@@ -752,6 +807,15 @@ export const useAuthStore = defineStore('Auth', () => {
                     return;
                 }
                 if (!ok) return;
+
+                if (isWebPlatform) {
+                    try {
+                        handleWebVrchatAuth(await webSession.submitVrchatTwoFactor('emailOtp', value.trim()));
+                    } catch {
+                        promptEmailOTP();
+                    }
+                    return;
+                }
 
                 authRequest
                     .verifyEmailOTP({
@@ -768,6 +832,52 @@ export const useAuthStore = defineStore('Auth', () => {
             .catch(() => {
                 twoFactorAuthDialogVisible.value = false;
             });
+    }
+
+    async function loginWeb() {
+        if (loginForm.value.loading) return;
+
+        loginForm.value.loading = true;
+        loginForm.value.saveCredentials = false;
+        loginForm.value.endpoint = '';
+        loginForm.value.websocket = '';
+        credentialsToSave.value = null;
+        try {
+            const result = await webSession.loginVrchat(loginForm.value.username.trim(), loginForm.value.password);
+            handleWebVrchatAuth(result);
+            return result;
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'VRChat login failed.');
+            throw error;
+        } finally {
+            loginForm.value.password = '';
+            loginForm.value.loading = false;
+        }
+    }
+
+    function webChallengeIncludes(kind) {
+        return Boolean(webSession.state.vrchatAuth.challenge?.kinds?.includes(kind));
+    }
+
+    function handleWebVrchatAuth(result) {
+        if (!isWebPlatform || !result) return;
+        if (result.status === 'two_factor_required') {
+            if (webChallengeIncludes('emailOtp')) {
+                promptEmailOTP();
+            } else if (webChallengeIncludes('totp')) {
+                promptTOTP();
+            } else if (webChallengeIncludes('otp')) {
+                promptOTP();
+            }
+            return;
+        }
+        if (result.status === 'authenticated') {
+            loginForm.value.password = '';
+            return;
+        }
+        if (!result.ok) {
+            toast.error(result.errorCode || 'VRChat login failed.');
+        }
     }
 
     /**
@@ -816,6 +926,16 @@ export const useAuthStore = defineStore('Auth', () => {
      * @param json
      */
     function handleCurrentUserUpdate(json) {
+        const requiredTwoFactorKinds = Array.isArray(json.requiresTwoFactorAuth)
+            ? json.requiresTwoFactorAuth.filter((kind) => ['totp', 'otp', 'emailOtp'].includes(kind))
+            : [];
+        if (runtimeCapabilities.serverMode && json.requiresTwoFactorAuth) {
+            serverAuthChallenge.value = {
+                kinds: requiredTwoFactorKinds.length ? requiredTwoFactorKinds : ['totp', 'otp']
+            };
+            return;
+        }
+        serverAuthChallenge.value = null;
         if (json.requiresTwoFactorAuth && json.requiresTwoFactorAuth.includes('emailOtp')) {
             promptEmailOTP();
         } else if (json.requiresTwoFactorAuth) {
@@ -868,9 +988,13 @@ export const useAuthStore = defineStore('Auth', () => {
             return;
         }
         await database.initUserTables(userStore.currentUser.id);
-        advancedSettingsStore.runAvatarAutoCleanup(userStore.currentUser.id);
+        if (runtimeCapabilities.desktopIntegration) {
+            advancedSettingsStore.runAvatarAutoCleanup(userStore.currentUser.id);
+        }
         watchState.isLoggedIn = true;
-        AppApi.CheckGameRunning(); // restore state from hot-reload
+        if (runtimeCapabilities.gameProcessMonitoring) {
+            AppApi.CheckGameRunning(); // restore state from hot-reload
+        }
 
         activityStore.startFullCacheBuild(userStore.currentUser.id);
     }
@@ -914,6 +1038,7 @@ export const useAuthStore = defineStore('Auth', () => {
         enablePrimaryPasswordDialog,
         credentialsToSave,
         twoFactorAuthDialogVisible,
+        serverAuthChallenge,
         cachedConfig,
         cachedPermissions,
         enableCustomEndpoint,

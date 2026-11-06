@@ -23,6 +23,12 @@ import { AppDebug } from '../services/appConfig';
 import { database } from '../services/database';
 import { patchUserFromEvent } from '../queries';
 import { watchState } from '../services/watchState';
+import {
+    recordAuthenticationRequired,
+    recordSyncAttempt,
+    recordSyncFailure,
+    recordSyncSuccess
+} from '../services/syncTelemetry';
 import { applyAvatar, showAvatarDialog } from './avatarCoordinator';
 import { applyFavorite } from './favoriteCoordinator';
 import {
@@ -55,6 +61,8 @@ import { useSharedFeedStore } from '../stores/sharedFeed';
 import { useUiStore } from '../stores/ui';
 import { useUserStore } from '../stores/user';
 import { useFeedStore } from '../stores/feed';
+import { getWebEntity } from '../web/entities';
+import { isWebPlatform, platformCapabilities } from '../web/platform';
 
 const getRobotUrl = () => `${AppDebug.endpointDomain}/file/file_0e8c4e32-7444-44ea-ade4-313c010d4bae/1/file`;
 
@@ -131,6 +139,8 @@ const PROFILE_REFRESH_INTERVAL = 7 * 24 * 60 * 60 * 1000;
 const pendingProfileRefresh = new Set();
 
 async function refreshStaleUserProfile(userId) {
+    if (!platformCapabilities.userRelatedResources) return;
+
     if (pendingProfileRefresh.has(userId)) {
         return;
     }
@@ -253,7 +263,7 @@ export function applyUser(json) {
         ref.$location = parseLocation(ref.location);
         currentTravelers.delete(ref.id);
     }
-    if (!instanceStore.cachedInstances.has(ref.$location.tag) && isRealInstance(ref.location)) {
+    if (!isWebPlatform && !instanceStore.cachedInstances.has(ref.$location.tag) && isRealInstance(ref.location)) {
         instanceRequest.getInstance({
             worldId: ref.$location.worldId,
             instanceId: ref.$location.instanceId
@@ -424,17 +434,19 @@ export function showUserDialog(userId) {
         buttonColor: 'var(--primary)',
         subtextColor: 'var(--muted-foreground)'
     };
-    if (userId === currentUser.id) {
+    if (!isWebPlatform && userId === currentUser.id) {
         getWorldName(currentUser.homeLocation).then((worldName) => {
             D.$homeLocationName = worldName;
         });
     }
     updateUserDialogProfile();
-    AppApi.SendIpc('ShowUserDialog', userId);
-    queryRequest
-        .fetch('user', {
-            userId
-        })
+    if (!isWebPlatform) {
+        AppApi.SendIpc('ShowUserDialog', userId);
+    }
+    const loadUserRequest = isWebPlatform
+        ? getWebEntity('user', userId).then((json) => ({ json, ref: applyUser(json) }))
+        : queryRequest.fetch('user', { userId });
+    loadUserRequest
         .catch((err) => {
             D.loading = false;
             D.id = null;
@@ -448,6 +460,9 @@ export function showUserDialog(userId) {
                 D.loading = false;
 
                 D.ref = args.ref;
+                if (isWebPlatform) {
+                    D.publicProfileRef = D.ref;
+                }
                 uiStore.setDialogCrumbLabel('user', D.id, D.ref?.displayName || D.id);
                 D.friend = friendStore.friends.get(D.id);
                 D.isFriend = Boolean(D.friend);
@@ -478,84 +493,89 @@ export function showUserDialog(userId) {
                 } else if (D.ref.friendRequestStatus === 'outgoing') {
                     D.outgoingRequest = true;
                 }
-                let inCurrentWorld = false;
-                if (locationStore.lastLocation.playerList.has(D.ref.id)) {
-                    inCurrentWorld = true;
-                }
-                if (userId !== currentUser.id && watchState.isFriendsLoaded) {
-                    database.getUserStats(D.ref, inCurrentWorld).then(async (ref1) => {
-                        if (ref1.userId === D.id) {
-                            D.lastSeen = ref1.lastSeen;
-                            D.joinCount = ref1.joinCount;
-                            D.timeSpent = ref1.timeSpent;
-                        }
-                        const displayNameMap = ref1.previousDisplayNames;
-                        const userNotifications = await database.getFriendLogHistoryForUserId(D.id, [
-                            'DisplayName',
-                            'Friend',
-                            'Unfriend'
-                        ]);
-                        const dateFriendedInfo = [];
-                        for (const notification of userNotifications) {
-                            if (notification.userId !== D.id) {
-                                continue;
+                if (platformCapabilities.userHistoryStats) {
+                    let inCurrentWorld = false;
+                    if (locationStore.lastLocation.playerList.has(D.ref.id)) {
+                        inCurrentWorld = true;
+                    }
+                    if (userId !== currentUser.id && watchState.isFriendsLoaded) {
+                        database.getUserStats(D.ref, inCurrentWorld).then(async (ref1) => {
+                            if (ref1.userId === D.id) {
+                                D.lastSeen = ref1.lastSeen;
+                                D.joinCount = ref1.joinCount;
+                                D.timeSpent = ref1.timeSpent;
                             }
-                            if (notification.type === 'DisplayName') {
-                                displayNameMap.set(notification.previousDisplayName, notification.created_at);
+                            const displayNameMap = ref1.previousDisplayNames;
+                            const userNotifications = await database.getFriendLogHistoryForUserId(D.id, [
+                                'DisplayName',
+                                'Friend',
+                                'Unfriend'
+                            ]);
+                            const dateFriendedInfo = [];
+                            for (const notification of userNotifications) {
+                                if (notification.userId !== D.id) {
+                                    continue;
+                                }
+                                if (notification.type === 'DisplayName') {
+                                    displayNameMap.set(notification.previousDisplayName, notification.created_at);
+                                }
+                                if (
+                                    notification.type === 'Friend' ||
+                                    (notification.type === 'Unfriend' && !appearanceSettingsStore.hideUnfriends)
+                                ) {
+                                    dateFriendedInfo.unshift(notification);
+                                }
                             }
-                            if (
-                                notification.type === 'Friend' ||
-                                (notification.type === 'Unfriend' && !appearanceSettingsStore.hideUnfriends)
-                            ) {
-                                dateFriendedInfo.unshift(notification);
+                            D.dateFriendedInfo = dateFriendedInfo;
+                            if (dateFriendedInfo.length > 0) {
+                                const latestFriendedInfo = dateFriendedInfo[0];
+                                D.unFriended = latestFriendedInfo.type === 'Unfriend';
+                                D.dateFriended = latestFriendedInfo.created_at;
                             }
-                        }
-                        D.dateFriendedInfo = dateFriendedInfo;
-                        if (dateFriendedInfo.length > 0) {
-                            const latestFriendedInfo = dateFriendedInfo[0];
-                            D.unFriended = latestFriendedInfo.type === 'Unfriend';
-                            D.dateFriended = latestFriendedInfo.created_at;
-                        }
-                        displayNameMap.forEach((updated_at, displayName) => {
-                            D.previousDisplayNames.push({
-                                displayName,
-                                updated_at
+                            displayNameMap.forEach((updated_at, displayName) => {
+                                D.previousDisplayNames.push({
+                                    displayName,
+                                    updated_at
+                                });
                             });
                         });
-                    });
-                    AppApi.GetVRChatUserModeration(currentUser.id, userId).then((result) => {
-                        D.avatarModeration = result;
-                        if (result === 4) {
-                            D.isHideAvatar = true;
-                        } else if (result === 5) {
-                            D.isShowAvatar = true;
-                        }
-                    });
-                    if (!currentUser.hasSharedConnectionsOptOut) {
-                        try {
-                            queryRequest.fetch('mutualCounts', { userId }).then((args) => {
-                                if (args.params.userId === D.id) {
-                                    D.mutualFriendCount = args.json.friends;
-                                    D.mutualGroupCount = args.json.groups;
+                        if (platformCapabilities.desktopIntegration)
+                            AppApi.GetVRChatUserModeration(currentUser.id, userId).then((result) => {
+                                D.avatarModeration = result;
+                                if (result === 4) {
+                                    D.isHideAvatar = true;
+                                } else if (result === 5) {
+                                    D.isShowAvatar = true;
                                 }
                             });
-                        } catch (error) {
-                            console.error(error);
+                        if (platformCapabilities.mutualConnections && !currentUser.hasSharedConnectionsOptOut) {
+                            try {
+                                queryRequest.fetch('mutualCounts', { userId }).then((args) => {
+                                    if (args.params.userId === D.id) {
+                                        D.mutualFriendCount = args.json.friends;
+                                        D.mutualGroupCount = args.json.groups;
+                                    }
+                                });
+                            } catch (error) {
+                                console.error(error);
+                            }
                         }
+                    } else {
+                        D.previousDisplayNames = currentUser.pastDisplayNames;
+                        database.getUserStats(D.ref, inCurrentWorld).then((ref1) => {
+                            if (ref1.userId === D.id) {
+                                D.lastSeen = ref1.lastSeen;
+                                D.joinCount = ref1.joinCount;
+                                D.timeSpent = ref1.timeSpent;
+                            }
+                        });
                     }
-                } else {
-                    D.previousDisplayNames = currentUser.pastDisplayNames;
-                    database.getUserStats(D.ref, inCurrentWorld).then((ref1) => {
-                        if (ref1.userId === D.id) {
-                            D.lastSeen = ref1.lastSeen;
-                            D.joinCount = ref1.joinCount;
-                            D.timeSpent = ref1.timeSpent;
-                        }
+                }
+                if (platformCapabilities.userRelatedResources) {
+                    queryRequest.fetch('representedGroup', { userId }).then((args1) => {
+                        handleGroupRepresented(args1);
                     });
                 }
-                queryRequest.fetch('representedGroup', { userId }).then((args1) => {
-                    handleGroupRepresented(args1);
-                });
                 D.visible = true;
                 userStore.applyUserDialogLocation(true);
             }
@@ -568,7 +588,7 @@ export function updateUserDialogProfile() {
     const userStore = useUserStore();
     const D = userStore.userDialog;
     const appearanceSettingsStore = useAppearanceSettingsStore();
-    D.publicProfileRef = userStore.cachedProfiles.get(D.id);
+    D.publicProfileRef = isWebPlatform ? D.ref : userStore.cachedProfiles.get(D.id);
     userRequest
         .getPublicProfile({ userId: D.id })
         .then((args1) => {
@@ -1021,15 +1041,26 @@ export function applyCurrentUser(json) {
 
 export function getCurrentUser() {
     const authStore = useAuthStore();
+    recordSyncAttempt();
     return request('auth/user', {
         method: 'GET'
-    }).then((json) => {
-        const args = {
-            json
-        };
-        authStore.handleCurrentUserUpdate(json);
-        return args;
-    });
+    })
+        .then((json) => {
+            const args = {
+                json
+            };
+            authStore.handleCurrentUserUpdate(json);
+            if (json.requiresTwoFactorAuth) {
+                recordAuthenticationRequired();
+            } else {
+                recordSyncSuccess();
+            }
+            return args;
+        })
+        .catch((error) => {
+            recordSyncFailure(error);
+            throw error;
+        });
 }
 
 /**

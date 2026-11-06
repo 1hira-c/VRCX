@@ -3167,6 +3167,103 @@
             }
         }
     },
+    "web": {
+        "sync": {
+            "last_success": "最終同期成功: {time}",
+            "last_success_short": "最終",
+            "never": "未同期",
+            "events": "更新通知",
+            "state": {
+                "healthy": "同期済み",
+                "starting": "同期を開始中",
+                "authenticating": "認証中",
+                "syncing": "同期中",
+                "connecting": "接続中",
+                "rate_limited": "VRChatのレート制限中",
+                "degraded": "同期を再試行中",
+                "error": "同期に失敗",
+                "requires_authentication": "VRChatの再認証が必要",
+                "not_configured": "VRChatを接続してください",
+                "stale": "同期データが古くなっています",
+                "unknown": "同期状態を確認中"
+            },
+            "compact": {
+                "healthy": "同期済み",
+                "starting": "開始中",
+                "authenticating": "認証中",
+                "syncing": "同期中",
+                "connecting": "接続中",
+                "rate_limited": "レート制限",
+                "degraded": "再試行中",
+                "error": "同期失敗",
+                "requires_authentication": "再認証が必要",
+                "not_configured": "未接続",
+                "stale": "古いデータ",
+                "unknown": "確認中"
+            },
+            "connection": {
+                "idle": "待機中",
+                "connecting": "接続中",
+                "connected": "接続済み",
+                "reconnecting": "再接続中",
+                "disconnected": "切断",
+                "closed": "終了",
+                "error": "失敗",
+                "unknown": "状態不明"
+            }
+        },
+        "history": {
+            "game_log_pc_agent_notice": "PC依存のゲームログは移行時点までの履歴です。PCエージェント導入までは更新されません。"
+        },
+        "vrchat": {
+            "reauthenticate": "VRChatを再認証",
+            "logout": "VRChatからログアウト",
+            "reauth_title": "VRChatを再認証しますか？",
+            "reauth_description": "現在のVRChatセッションを終了してログイン画面へ戻ります。VRCX Webの管理者セッションは維持されます。",
+            "logout_title": "VRChatからログアウトしますか？",
+            "logout_description": "現在のVRChatセッションを終了してログイン画面へ戻ります。VRCX Webの管理者セッションは維持されます。",
+            "status_tooltip": "VRChat: {status}。クリックして再認証します。",
+            "status": {
+                "authenticated": "認証済み",
+                "authenticating": "認証中",
+                "two_factor_required": "2FA入力待ち",
+                "requires_authentication": "再認証が必要",
+                "unknown": "状態不明"
+            }
+        },
+        "devices": {
+            "menu": "Web端末管理",
+            "title": "Web端末管理",
+            "description": "VRCX Webへアクセスできるブラウザを追加または失効します。管理者セッションはVRChatログインとは別です。",
+            "add_title": "新しい端末を追加",
+            "add_description": "新しい端末でQRコードを開くか、一回限りのコードを入力します。",
+            "issue_pairing": "ペアリングを発行",
+            "pairing_qr_alt": "VRCX Web端末ペアリング用QRコード",
+            "pairing_code": "ペアリングコード",
+            "expires_at": "有効期限: {time}",
+            "pairing_warning": "このコードは一度だけ使用できます。追加する端末以外には共有しないでください。",
+            "connected_title": "接続済み端末",
+            "connected_description": "不要になったセッションを失効できます。",
+            "refresh": "端末一覧を更新",
+            "empty": "接続済み端末はありません。",
+            "unnamed": "名前のない端末",
+            "current": "この端末",
+            "revoked": "失効済み",
+            "last_seen_at": "最終利用: {time}",
+            "no_record": "記録なし",
+            "revoke": "失効",
+            "admin_session_title": "VRCX Web管理者セッション",
+            "admin_session_description": "ここでログアウトしても、サーバーのVRChat同期は停止せず、保存済み履歴も削除されません。",
+            "admin_logout": "サーバー管理からログアウト",
+            "invalid_pairing_url": "安全なペアリングURLを作成できませんでした。",
+            "revoke_current_title": "この端末のセッションを失効しますか？",
+            "revoke_title": "端末のセッションを失効しますか？",
+            "revoke_current_description": "このブラウザはVRCX Web管理者ログインへ戻ります。サーバーの同期は継続します。",
+            "revoke_description": "{name} からVRCX Webへアクセスできなくなります。",
+            "admin_logout_title": "VRCX Web管理からログアウトしますか？",
+            "admin_logout_description": "このブラウザの管理者セッションだけを終了します。VRChat同期はサーバーで継続します。"
+        }
+    },
     "status_bar": {
         "game": "VRChat",
         "game_running": "VRChat は実行中です",

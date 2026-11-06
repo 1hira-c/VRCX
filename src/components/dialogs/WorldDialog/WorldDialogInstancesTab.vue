@@ -148,7 +148,8 @@
                 :autosize="true"
                 :placeholder="t('dialog.world.info.memo_placeholder')"
                 input-class="resize-none min-h-0"
-                @change="onWorldMemoChange" />
+                :readonly="!platformCapabilities.vrchatMutations"
+                @change="platformCapabilities.vrchatMutations && onWorldMemoChange()" />
         </div>
     </div>
 </template>
@@ -178,6 +179,7 @@
     import InstanceActionBar from '../../InstanceActionBar.vue';
     import { showUserDialog } from '../../../coordinators/userCoordinator';
     import { useWorldMemo } from './useWorldDialogInfo';
+    import { platformCapabilities } from '../../../web/platform';
 
     const { t } = useI18n();
     const { userImage, userStatusClass } = useUserDisplay();

@@ -1,6 +1,8 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 
 import { watchState } from '../services/watchState';
+import { isPlatformViewAvailable, isWebPlatform } from '../web/platform';
+import { canBrowseWeb } from '../web/session';
 
 import FavoritesAvatar from './../views/Favorites/FavoritesAvatar.vue';
 import FavoritesFriend from './../views/Favorites/FavoritesFriend.vue';
@@ -145,17 +147,34 @@ export function initRouter(app) {
     app.use(router);
 }
 
+const unsupportedWebRoutes = new Set([
+    'player-list',
+    'moderation',
+    'my-avatars',
+    'tools',
+    'gallery',
+    'screenshot-metadata',
+    'settings'
+]);
+
 router.beforeEach((to) => {
+    const routeName = String(to.name || '');
+    if (isWebPlatform && (unsupportedWebRoutes.has(routeName) || !isPlatformViewAvailable(routeName))) {
+        return { name: 'feed' };
+    }
+
     if (to.path === '/social') {
         return false;
     }
 
-    if (to.name === 'login' && watchState.isLoggedIn) {
+    const hasRouteAccess = isWebPlatform ? canBrowseWeb() : watchState.isLoggedIn;
+
+    if (to.name === 'login' && hasRouteAccess && (!isWebPlatform || to.query.reauth !== '1')) {
         return { name: 'feed' };
     }
 
     const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth);
-    if (requiresAuth && !watchState.isLoggedIn) {
+    if (requiresAuth && !hasRouteAccess) {
         const redirect = to.fullPath;
         if (redirect && redirect !== '/feed') {
             return { name: 'login', query: { redirect } };

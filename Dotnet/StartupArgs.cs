@@ -78,6 +78,9 @@ namespace VRCX
                 if (arg == VrcxLaunchArguments.Overlay)
                     arguments.IsOverlay = true;
 
+                if (arg == VrcxLaunchArguments.ServerMode)
+                    arguments.IsServerMode = true;
+
                 if (arg.StartsWith(VrcxLaunchArguments.LaunchCommandPrefix) && arg.Length > VrcxLaunchArguments.LaunchCommandPrefix.Length)
                     arguments.LaunchCommand = arg.Substring(VrcxLaunchArguments.LaunchCommandPrefix.Length);
 
@@ -106,6 +109,9 @@ namespace VRCX
 
             public const string Overlay = "--overlay";
             public bool IsOverlay { get; set; } = false;
+
+            public const string ServerMode = "--server-mode";
+            public bool IsServerMode { get; set; } = false;
 
             public const string LaunchCommandPrefix = "/uri=vrcx://";
             public const string LinuxLaunchCommandPrefix = "vrcx://";

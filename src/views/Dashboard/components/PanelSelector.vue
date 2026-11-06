@@ -70,6 +70,7 @@
     import { DASHBOARD_BLOCKED_PANEL_KEYS } from '@/shared/constants/dashboard';
     import { isToolNavKey } from '@/shared/constants';
     import { navDefinitions } from '@/shared/constants/ui';
+    import { isPlatformViewAvailable } from '@/web/platform';
 
     const widgetDefinitions = [
         {
@@ -116,7 +117,11 @@
 
     const panelOptions = computed(() =>
         navDefinitions.filter(
-            (def) => def.routeName && !DASHBOARD_BLOCKED_PANEL_KEYS.has(def.key) && !isToolNavKey(def.key)
+            (def) =>
+                def.routeName &&
+                !DASHBOARD_BLOCKED_PANEL_KEYS.has(def.key) &&
+                !isToolNavKey(def.key) &&
+                isPlatformViewAvailable(def.key)
         )
     );
 

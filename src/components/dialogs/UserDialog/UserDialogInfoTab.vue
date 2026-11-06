@@ -11,7 +11,7 @@
                     <span v-if="isRealInstance(userDialog.$location.tag)">
                         <InstanceActionBar
                             class="mb-1"
-                            :showButtons="true"
+                            :showButtons="platformCapabilities.localGameIntegration"
                             :buttonStyle="{ color: userDialog.theme.iconColor }"
                             :showInstanceInfo="false"
                             :location="userDialog.$location.tag"
@@ -152,7 +152,7 @@
                                 <Languages v-else class="h-3 w-3" :style="{ color: userDialog.theme.iconColor }" />
                             </Button>
                             <Button
-                                v-if="userDialog.id === currentUser.id"
+                                v-if="platformCapabilities.vrchatMutations && userDialog.id === currentUser.id"
                                 class="h-5 w-5"
                                 size="icon-sm"
                                 variant="ghost"
@@ -183,15 +183,20 @@
 
                 <div
                     v-if="!hideUserNotes"
-                    class="rounded-xl bg-(--profile-card) p-3 cursor-pointer"
-                    @click="isEditNoteAndMemoDialogVisible = true">
+                    class="rounded-xl bg-(--profile-card) p-3"
+                    :class="{ 'cursor-pointer': platformCapabilities.vrchatMutations }"
+                    @click="platformCapabilities.vrchatMutations && (isEditNoteAndMemoDialogVisible = true)">
                     <div class="flex items-center justify-between mb-2 pb-2 border-b border-muted-foreground/20">
                         <span
                             class="text-[10px] font-bold uppercase tracking-wide"
                             :style="{ color: userDialog.theme.subtextColor }">
                             {{ t('dialog.user.info.note') }}
                         </span>
-                        <Button class="h-5 w-5" size="icon-sm" variant="ghost">
+                        <Button
+                            v-if="platformCapabilities.vrchatMutations"
+                            class="h-5 w-5"
+                            size="icon-sm"
+                            variant="ghost">
                             <Pencil class="h-3 w-3" :style="{ color: userDialog.theme.iconColor }" />
                         </Button>
                     </div>
@@ -205,15 +210,20 @@
 
                 <div
                     v-if="!hideUserMemos"
-                    class="rounded-xl bg-(--profile-card) p-3 cursor-pointer"
-                    @click="isEditNoteAndMemoDialogVisible = true">
+                    class="rounded-xl bg-(--profile-card) p-3"
+                    :class="{ 'cursor-pointer': platformCapabilities.vrchatMutations }"
+                    @click="platformCapabilities.vrchatMutations && (isEditNoteAndMemoDialogVisible = true)">
                     <div class="flex items-center justify-between mb-2 pb-2 border-b border-muted-foreground/20">
                         <span
                             class="text-[10px] font-bold uppercase tracking-wide"
                             :style="{ color: userDialog.theme.subtextColor }">
                             {{ t('dialog.user.info.memo') }}
                         </span>
-                        <Button class="h-5 w-5" size="icon-sm" variant="ghost">
+                        <Button
+                            v-if="platformCapabilities.vrchatMutations"
+                            class="h-5 w-5"
+                            size="icon-sm"
+                            variant="ghost">
                             <Pencil class="h-3 w-3" :style="{ color: userDialog.theme.iconColor }" />
                         </Button>
                     </div>
@@ -315,10 +325,19 @@
                                     }}</span>
                                 </div>
                             </TooltipWrapper>
-                            <TooltipWrapper side="right" :content="t('dialog.user.info.open_previous_instance')">
+                            <TooltipWrapper
+                                side="right"
+                                :disabled="!platformCapabilities.activityDetails"
+                                :content="t('dialog.user.info.open_previous_instance')">
                                 <div
-                                    class="flex justify-between items-start gap-2 text-xs cursor-pointer hover:text-foreground"
-                                    @click="showPreviousInstancesListDialog(userDialog.ref)">
+                                    class="flex justify-between items-start gap-2 text-xs"
+                                    :class="{
+                                        'cursor-pointer hover:text-foreground': platformCapabilities.activityDetails
+                                    }"
+                                    @click="
+                                        platformCapabilities.activityDetails &&
+                                        showPreviousInstancesListDialog(userDialog.ref)
+                                    ">
                                     <span class="text-muted-foreground shrink-0">{{
                                         t('dialog.user.info.join_count')
                                     }}</span>
@@ -329,10 +348,19 @@
                             </TooltipWrapper>
                         </template>
                         <template v-else>
-                            <TooltipWrapper side="right" :content="t('dialog.user.info.open_previous_instance')">
+                            <TooltipWrapper
+                                side="right"
+                                :disabled="!platformCapabilities.activityDetails"
+                                :content="t('dialog.user.info.open_previous_instance')">
                                 <div
-                                    class="flex justify-between items-start gap-2 text-xs cursor-pointer hover:text-foreground"
-                                    @click="showPreviousInstancesListDialog(userDialog.ref)">
+                                    class="flex justify-between items-start gap-2 text-xs"
+                                    :class="{
+                                        'cursor-pointer hover:text-foreground': platformCapabilities.activityDetails
+                                    }"
+                                    @click="
+                                        platformCapabilities.activityDetails &&
+                                        showPreviousInstancesListDialog(userDialog.ref)
+                                    ">
                                     <span class="text-muted-foreground shrink-0">{{
                                         t('dialog.user.info.play_time')
                                     }}</span>
@@ -388,7 +416,7 @@
                             </div>
                         </TooltipWrapper>
 
-                        <template v-if="currentUser.id === userDialog.id">
+                        <template v-if="platformCapabilities.vrchatMutations && currentUser.id === userDialog.id">
                             <TooltipWrapper side="right">
                                 <template #content>
                                     <span>{{ t('view.profile.profile.refresh') }}</span>
@@ -442,6 +470,7 @@
                         @click="showWorldDialog(currentUser.homeLocation)">
                         <span class="truncate" v-text="userDialog.$homeLocationName"></span>
                         <Button
+                            v-if="platformCapabilities.vrchatMutations"
                             class="rounded-full h-5 w-5 flex-none"
                             size="icon-sm"
                             variant="ghost"
@@ -453,7 +482,9 @@
             </div>
         </div>
     </div>
-    <EditNoteAndMemoDialog v-model:visible="isEditNoteAndMemoDialogVisible" />
+    <EditNoteAndMemoDialog
+        v-if="platformCapabilities.vrchatMutations"
+        v-model:visible="isEditNoteAndMemoDialogVisible" />
 </template>
 
 <script setup>
@@ -480,6 +511,7 @@
         timeAgo
     } from '../../../shared/utils';
     import { useUserDisplay } from '../../../composables/useUserDisplay';
+    import { platformCapabilities } from '../../../web/platform';
     import { refreshInstancePlayerCount } from '../../../coordinators/instanceCoordinator';
     import {
         useAdvancedSettingsStore,
@@ -536,12 +568,17 @@
     );
 
     function onTabActivated() {
-        if (currentUser.value.id === userDialog.value.id && currentUserCredits.value === null) {
+        if (
+            platformCapabilities.vrchatMutations &&
+            currentUser.value.id === userDialog.value.id &&
+            currentUserCredits.value === null
+        ) {
             getVRChatCredits();
         }
     }
 
     function showEditNoteAndMemoDialog() {
+        if (!platformCapabilities.vrchatMutations) return;
         isEditNoteAndMemoDialogVisible.value = true;
     }
 

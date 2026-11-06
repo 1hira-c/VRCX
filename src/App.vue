@@ -13,9 +13,9 @@
             <OpenExternalLinkDialog></OpenExternalLinkDialog>
             <PromptDialogModal></PromptDialogModal>
             <OtpDialogModal></OtpDialogModal>
-            <DatabaseUpgradeDialog></DatabaseUpgradeDialog>
+            <DatabaseUpgradeDialog v-if="platformCapabilities.localDatabase"></DatabaseUpgradeDialog>
 
-            <VRCXUpdateDialog></VRCXUpdateDialog>
+            <VRCXUpdateDialog v-if="platformCapabilities.desktopIntegration"></VRCXUpdateDialog>
         </div>
         <div id="x-dialog-portal" class="x-dialog-portal"></div>
     </TooltipProvider>
@@ -32,8 +32,12 @@
     } from './coordinators/gameCoordinator';
     import { Toaster } from './components/ui/sonner';
     import { TooltipProvider } from './components/ui/tooltip';
-    import { createGlobalStores } from './stores';
+    import { createGlobalStores, useAppearanceSettingsStore } from './stores';
     import { initNoty } from './plugins/noty';
+    import { runtimeCapabilities } from './services/runtimeCapabilities';
+    import { startServerAuthControl } from './services/serverAuthControl';
+    import { startServerProjectionPublisher } from './services/serverProjectionPublisher';
+    import { platformCapabilities } from './web/platform';
 
     import AlertDialogModal from './components/ui/alert-dialog/AlertDialogModal.vue';
     import DatabaseUpgradeDialog from './components/dialogs/DatabaseUpgradeDialog.vue';
@@ -55,9 +59,11 @@
 
     initNoty();
 
-    const store = createGlobalStores();
+    const store = platformCapabilities.desktopIntegration
+        ? createGlobalStores()
+        : { appearanceSettings: useAppearanceSettingsStore() };
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && platformCapabilities.desktopIntegration) {
         window.$pinia = store;
         window.$bridge = {
             updateIsGameRunning: runUpdateIsGameRunningFlow,
@@ -67,17 +73,34 @@
     }
 
     onBeforeMount(() => {
-        store.updateLoop.updateLoop();
+        if (platformCapabilities.desktopIntegration) {
+            store.updateLoop.updateLoop();
+        }
     });
 
     onMounted(async () => {
+        if (!platformCapabilities.desktopIntegration) {
+            return;
+        }
         if (await store.vrcx.waitForDatabaseInit()) {
+            if (runtimeCapabilities.serverMode) {
+                startServerAuthControl(store);
+                try {
+                    await startServerProjectionPublisher(/** @type {ReturnType<typeof createGlobalStores>} */ (store));
+                } catch (error) {
+                    console.error('Failed to start server projection publisher', error);
+                }
+            }
             getGameLogTable();
             await store.auth.migrateStoredUsers();
             store.auth.autoLoginAfterMounted();
-            store.vrcx.checkAutoBackupRestoreVrcRegistry();
+            if (runtimeCapabilities.desktopIntegration) {
+                store.vrcx.checkAutoBackupRestoreVrcRegistry();
+            }
         }
 
-        runCheckVRChatDebugLoggingFlow();
+        if (runtimeCapabilities.desktopIntegration) {
+            runCheckVRChatDebugLoggingFlow();
+        }
     });
 </script>

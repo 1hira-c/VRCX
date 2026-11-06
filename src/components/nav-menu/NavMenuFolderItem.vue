@@ -92,7 +92,7 @@
                                                     <span v-else>{{ t(entry.label) }}</span>
                                                 </SidebarMenuSubButton>
                                             </ContextMenuTrigger>
-                                            <ContextMenuContent>
+                                            <ContextMenuContent v-if="!readOnly">
                                                 <ContextMenuItem
                                                     v-if="hasNotifications"
                                                     @click="emit('clear-notifications')">
@@ -128,7 +128,7 @@
                     </Collapsible>
                 </div>
             </ContextMenuTrigger>
-            <ContextMenuContent>
+            <ContextMenuContent v-if="!readOnly">
                 <ContextMenuItem v-if="hasNotifications" @click="emit('clear-notifications')">
                     {{ t('nav_menu.mark_all_read') }}
                 </ContextMenuItem>
@@ -203,6 +203,10 @@
         isToolItem: {
             type: Function,
             required: true
+        },
+        readOnly: {
+            type: Boolean,
+            default: false
         }
     });
 

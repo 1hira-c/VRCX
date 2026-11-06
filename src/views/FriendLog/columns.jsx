@@ -8,13 +8,14 @@ import { formatDateFilter } from '../../shared/utils';
 import { i18n } from '../../plugins';
 import { useUiStore } from '../../stores';
 import { showUserDialog } from '../../coordinators/userCoordinator';
+import { platformCapabilities } from '../../web/platform';
 
 const { t } = i18n.global;
 
 export const createColumns = ({ onDelete, onDeletePrompt }) => {
     const { shiftHeld } = storeToRefs(useUiStore());
 
-    return [
+    const columns = [
         {
             id: 'spacer',
             header: () => null,
@@ -134,4 +135,5 @@ export const createColumns = ({ onDelete, onDeletePrompt }) => {
             cell: () => null
         }
     ];
+    return platformCapabilities.vrchatMutations ? columns : columns.filter((column) => column.id !== 'action');
 };

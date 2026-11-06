@@ -33,7 +33,10 @@
                         <div class="flex flex-col gap-2">
                             <div class="flex items-center justify-between font-semibold text-sm mb-[9px]">
                                 <span>{{ t('view.favorite.avatars.vrchat_favorites') }}</span>
-                                <TooltipWrapper side="bottom" :content="t('view.favorite.refresh_favorites_tooltip')">
+                                <TooltipWrapper
+                                    v-if="!isReadOnlyWeb"
+                                    side="bottom"
+                                    :content="t('view.favorite.refresh_favorites_tooltip')">
                                     <Button
                                         class="rounded-full"
                                         variant="ghost"
@@ -68,6 +71,7 @@
                                                 }}</span>
                                             </span>
                                             <DropdownMenu
+                                                v-if="!isReadOnlyWeb"
                                                 :open="activeGroupMenu === remoteGroupMenuKey(group.key)"
                                                 @update:open="
                                                     handleGroupMenuVisible(remoteGroupMenuKey(group.key), $event)
@@ -140,7 +144,7 @@
                                 </template>
                             </div>
                         </div>
-                        <div class="flex flex-col gap-2">
+                        <div v-if="!isReadOnlyWeb" class="flex flex-col gap-2">
                             <div class="flex items-center justify-between font-semibold text-sm mb-[9px]">
                                 <span>{{ t('view.favorite.worlds.local_favorites') }}</span>
                                 <template v-if="!refreshingLocalFavorites">
@@ -237,6 +241,7 @@
                             <div class="flex items-center justify-between font-semibold text-sm mb-[9px]">
                                 <span>{{ t('view.favorite.avatars.local_history') }}</span>
                                 <DropdownMenu
+                                    v-if="!isReadOnlyWeb"
                                     :open="activeGroupMenu === historyGroupMenuKey"
                                     @update:open="handleGroupMenuVisible(historyGroupMenuKey, $event)">
                                     <DropdownMenuTrigger asChild>
@@ -472,6 +477,7 @@
     import FavoritesContentHeader from './components/FavoritesContentHeader.vue';
     import FavoritesToolbar from './components/FavoritesToolbar.vue';
     import InvalidAvatarsProgressToast from './components/InvalidAvatarsProgressToast.jsx';
+    import { isReadOnlyWeb } from '../../web/platform';
 
     import * as workerTimers from 'worker-timers';
 

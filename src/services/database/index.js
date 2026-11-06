@@ -18,6 +18,8 @@ import { worldFavorites } from './worldFavorites.js';
 import { printFavorites } from './printFavorites.js';
 
 import sqliteService from '../sqlite.js';
+import { isWebPlatform } from '../../web/platform.js';
+import { webDatabase } from '../../web/webDatabase.js';
 
 const dbVars = {
     userId: '',
@@ -26,7 +28,7 @@ const dbVars = {
     searchTableSize: 5000
 };
 
-const database = {
+const desktopDatabase = {
     ...feed,
     ...activityV2,
     ...gameLog,
@@ -245,5 +247,22 @@ const database = {
     }
 };
 
-window.database = database;
+const webDatabaseAdapter = {
+    ...webDatabase,
+    setMaxTableSize(limit) {
+        dbVars.maxTableSize = limit;
+        webDatabase.setMaxTableSize(limit);
+    },
+    setSearchTableSize(limit) {
+        dbVars.searchTableSize = limit;
+        webDatabase.setSearchTableSize(limit);
+    }
+};
+
+const database = isWebPlatform
+    ? /** @type {typeof desktopDatabase} */ (/** @type {unknown} */ (webDatabaseAdapter))
+    : desktopDatabase;
+if (!isWebPlatform) {
+    window.database = database;
+}
 export { database, dbVars };

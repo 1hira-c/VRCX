@@ -16,7 +16,7 @@ namespace VRCX
 
         public override void SetVR(bool active, bool hmdOverlay, bool wristOverlay, bool menuButton, int overlayHand)
         {
-            Program.VRCXVRInstance.SetActive(active, hmdOverlay, wristOverlay, menuButton, overlayHand);
+            Program.VRCXVRInstance?.SetActive(active, hmdOverlay, wristOverlay, menuButton, overlayHand);
         }
 
         public override void SetZoom(double zoomLevel)
@@ -43,7 +43,7 @@ namespace VRCX
 
         public override void ExecuteVrOverlayFunction(string function, string json)
         {
-            Program.VRCXVRInstance.ExecuteVrOverlayFunction(function, json);
+            Program.VRCXVRInstance?.ExecuteVrOverlayFunction(function, json);
         }
 
         public override void FocusWindow()

@@ -24,6 +24,7 @@ import { useUserStore } from '../user';
 import { useVrStore } from '../vr';
 import { useVrcxStore } from '../vrcx';
 import { watchState } from '../../services/watchState';
+import { isWebPlatform } from '../../web/platform.js';
 
 import configRepository from '../../services/config';
 
@@ -82,7 +83,7 @@ export const useGameLogStore = defineStore('GameLog', () => {
     });
 
     // ── Sessions view state ──
-    const sessionsViewMode = ref('sessions'); // 'sessions' | 'table'
+    const sessionsViewMode = ref(isWebPlatform ? 'table' : 'sessions'); // 'sessions' | 'table'
     const sessionsSegments = shallowRef([]);
     const sessionsCursor = ref(null);
     const sessionsLoading = ref(false);
@@ -166,7 +167,7 @@ export const useGameLogStore = defineStore('GameLog', () => {
     watch(
         () => watchState.isFriendsLoaded,
         (isFriendsLoaded) => {
-            if (isFriendsLoaded) {
+            if (isFriendsLoaded && !isWebPlatform) {
                 tryLoadPlayerList();
             }
         },

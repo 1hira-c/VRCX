@@ -25,6 +25,8 @@ import { patchAndRefetchActiveQuery, queryKeys } from '../queries';
 import { request } from '../services/request';
 import { useUserStore } from '../stores';
 import { applyUser, applyCurrentUser, applyPublicProfile } from '../coordinators/userCoordinator';
+import { isWebPlatform } from '../web/platform';
+import { webApi } from '../web/api';
 
 function getCurrentUserId(): string {
     return useUserStore().currentUser.id;
@@ -186,9 +188,10 @@ const userReq = {
         params: { userId: string };
         ref: Json<PublicProfile> & { $lastFetch?: number };
     }> {
-        return request(`profile/${params.userId}`, {
-            method: 'GET'
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getUserPublicProfile(params.userId)
+            : request(`profile/${params.userId}`, { method: 'GET' });
+        return source.then((json) => {
             json.$lastFetch = Date.now();
             const args = {
                 json,

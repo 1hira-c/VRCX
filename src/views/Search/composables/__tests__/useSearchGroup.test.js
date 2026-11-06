@@ -25,6 +25,18 @@ vi.mock('../../../../api', () => ({
     }
 }));
 
+vi.mock('../../../../coordinators/groupCoordinator', () => ({
+    applyGroup: (group) => group
+}));
+
+vi.mock('../../../../web/entities', () => ({
+    searchWebEntities: vi.fn()
+}));
+
+vi.mock('../../../../web/platform', () => ({
+    isWebPlatform: false
+}));
+
 import { useSearchGroup } from '../useSearchGroup';
 
 describe('useSearchGroup', () => {

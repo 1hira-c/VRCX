@@ -69,6 +69,7 @@
     import { database } from '../../services/database';
     import { removeFromArray } from '../../shared/utils';
     import { useVrcxVueTable } from '../../lib/table/useVrcxVueTable';
+    import { isReadOnlyWeb } from '../../web/platform';
 
     import configRepository from '../../services/config';
 
@@ -151,6 +152,7 @@
      * @param row
      */
     function deleteFriendLogPrompt(row) {
+        if (isReadOnlyWeb) return;
         modalStore
             .confirm({
                 description: t('confirm.delete_log'),
@@ -163,6 +165,7 @@
      * @param row
      */
     function deleteFriendLog(row) {
+        if (isReadOnlyWeb) return;
         removeFromArray(friendLogTable.value.data, row);
         database.deleteFriendLogHistory(row);
     }

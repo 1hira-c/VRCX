@@ -33,7 +33,10 @@
                         <div class="flex flex-col gap-2">
                             <div class="flex items-center justify-between font-semibold text-sm mb-[9px]">
                                 <span>{{ t('view.favorite.worlds.vrchat_favorites') }}</span>
-                                <TooltipWrapper side="bottom" :content="t('view.favorite.refresh_favorites_tooltip')">
+                                <TooltipWrapper
+                                    v-if="!isReadOnlyWeb"
+                                    side="bottom"
+                                    :content="t('view.favorite.refresh_favorites_tooltip')">
                                     <Button
                                         class="rounded-full"
                                         variant="ghost"
@@ -68,6 +71,7 @@
                                                 }}</span>
                                             </span>
                                             <DropdownMenu
+                                                v-if="!isReadOnlyWeb"
                                                 :open="activeGroupMenu === remoteGroupMenuKey(group.key)"
                                                 @update:open="
                                                     handleGroupMenuVisible(remoteGroupMenuKey(group.key), $event)
@@ -125,7 +129,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="flex flex-col gap-2">
+                        <div v-if="!isReadOnlyWeb" class="flex flex-col gap-2">
                             <div class="flex items-center justify-between font-semibold text-sm mb-[9px]">
                                 <span>{{ t('view.favorite.worlds.local_favorites') }}</span>
                                 <Button
@@ -348,6 +352,7 @@
     import FavoritesFriendItem from './components/FavoritesFriendItem.vue';
     import FavoritesToolbar from './components/FavoritesToolbar.vue';
     import FriendExportDialog from './dialogs/FriendExportDialog.vue';
+    import { isReadOnlyWeb } from '../../web/platform';
 
     const friendGroupVisibilityOptions = ref(['public', 'friends', 'private']);
 

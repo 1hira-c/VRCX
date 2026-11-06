@@ -52,7 +52,7 @@
                 </TooltipWrapper>
             </div>
             <TooltipWrapper
-                v-if="instanceInfoState.canSendAnnouncement"
+                v-if="platformCapabilities.vrchatMutations && instanceInfoState.canSendAnnouncement"
                 side="top"
                 :content="t('dialog.user.info.instance_announcement_tooltip')">
                 <Button
@@ -66,7 +66,7 @@
                 </Button>
             </TooltipWrapper>
             <TooltipWrapper
-                v-if="instanceInfoState.canLinkCalendarEvent"
+                v-if="platformCapabilities.vrchatMutations && instanceInfoState.canLinkCalendarEvent"
                 side="top"
                 :content="t('dialog.user.info.instance_calendar_link_tooltip')">
                 <Button
@@ -153,7 +153,11 @@
 
                         <div class="flex gap-2">
                             <Button
-                                v-if="!instance?.closedAt && instanceInfoState.canCloseInstance"
+                                v-if="
+                                    platformCapabilities.vrchatMutations &&
+                                    !instance?.closedAt &&
+                                    instanceInfoState.canCloseInstance
+                                "
                                 class="w-12 h-6 text-xs hover:text-muted-foreground"
                                 size="icon-sm"
                                 variant="destructive"
@@ -163,7 +167,7 @@
                                 <PowerIcon class="h-4 w-4" />
                             </Button>
                             <Button
-                                v-if="instanceInfoState.canRenameInstance"
+                                v-if="platformCapabilities.vrchatMutations && instanceInfoState.canRenameInstance"
                                 class="w-12 h-6 text-xs hover:text-muted-foreground"
                                 size="icon-sm"
                                 variant="secondary"
@@ -296,11 +300,11 @@
             </template>
         </div>
         <InstanceAnnouncementDialog
-            v-if="instanceAnnouncementDialogVisible"
+            v-if="platformCapabilities.vrchatMutations && instanceAnnouncementDialogVisible"
             v-model:open="instanceAnnouncementDialogVisible"
             :location="resolvedInstanceLocation" />
         <InstanceCalendarLinkDialog
-            v-if="instanceCalendarLinkDialogVisible"
+            v-if="platformCapabilities.vrchatMutations && instanceCalendarLinkDialogVisible"
             v-model:open="instanceCalendarLinkDialogVisible"
             :location="resolvedInstanceLocation"
             :current-event-id="instance?.calendarEntryId ?? ''" />
@@ -351,6 +355,7 @@
     import InstanceAnnouncementDialog from './dialogs/InstanceAnnouncementDialog.vue';
     import InstanceCalendarLinkDialog from './dialogs/InstanceCalendarLinkDialog.vue';
     import GroupCalendarEventDetails from '../views/Tools/components/GroupCalendarEventDetails.vue';
+    import { platformCapabilities } from '../web/platform';
 
     defineOptions({
         inheritAttrs: false
@@ -464,8 +469,16 @@
     const resolvedLastJoinLocation = computed(() => props.lastJoinLocation || props.location);
     const resolvedInstanceLocation = computed(() => props.instanceLocation || props.location);
 
-    const showLaunchButton = computed(() => props.showLaunch && checkCanInviteSelf(resolvedLaunchLocation.value));
-    const showInviteYourself = computed(() => props.showInvite && checkCanInviteSelf(resolvedInviteLocation.value));
+    const showLaunchButton = computed(
+        () =>
+            platformCapabilities.desktopIntegration &&
+            props.showLaunch &&
+            checkCanInviteSelf(resolvedLaunchLocation.value)
+    );
+    const showInviteYourself = computed(
+        () =>
+            platformCapabilities.vrchatMutations && props.showInvite && checkCanInviteSelf(resolvedInviteLocation.value)
+    );
 
     const showRefreshButton = computed(() => props.showRefresh && typeof props.onRefresh === 'function');
     const showHistoryButton = computed(() => props.showHistory && typeof props.onHistory === 'function');
@@ -555,10 +568,12 @@
     };
 
     const confirmLaunch = () => {
+        if (!platformCapabilities.desktopIntegration) return;
         launchStore.showLaunchDialog(resolvedLaunchLocation.value);
     };
 
     const confirmInvite = () => {
+        if (!platformCapabilities.vrchatMutations) return;
         const L = parseLocation(resolvedInviteLocation.value);
         if (!L.isRealInstance) {
             return;
@@ -577,6 +592,7 @@
     };
 
     const openInstance = () => {
+        if (!platformCapabilities.desktopIntegration) return;
         const L = parseLocation(resolvedInviteLocation.value);
         if (!L.isRealInstance) {
             return;
@@ -604,19 +620,21 @@
         if (!resolvedInstanceLocation.value || !props.instance || Object.keys(props.instance).length === 0) return;
 
         instanceInfoState.isValidInstance = true;
-        if (props.instance.ownerId === userStore.currentUser.id) {
-            instanceInfoState.canCloseInstance = true;
-            instanceInfoState.canRenameInstance = userStore.isLocalUserVrcPlusSupporter;
-        } else if (props.instance.ownerId?.startsWith('grp_')) {
-            const group = groupStore.cachedGroups.get(props.instance.ownerId);
-            instanceInfoState.canCloseInstance = hasGroupPermission(group, 'group-instance-moderate');
-            instanceInfoState.canRenameInstance = hasGroupPermission(group, 'group-instance-manage');
-            instanceInfoState.canSendAnnouncement =
-                hasGroupPermission(group, 'group-instance-announcement-create') &&
-                resolvedInstanceLocation.value === locationStore.lastLocation.location;
-            instanceInfoState.canLinkCalendarEvent =
-                hasGroupPermission(group, 'group-instance-manage') &&
-                hasGroupPermission(group, 'group-instance-calendar-link');
+        if (platformCapabilities.vrchatMutations) {
+            if (props.instance.ownerId === userStore.currentUser.id) {
+                instanceInfoState.canCloseInstance = true;
+                instanceInfoState.canRenameInstance = userStore.isLocalUserVrcPlusSupporter;
+            } else if (props.instance.ownerId?.startsWith('grp_')) {
+                const group = groupStore.cachedGroups.get(props.instance.ownerId);
+                instanceInfoState.canCloseInstance = hasGroupPermission(group, 'group-instance-moderate');
+                instanceInfoState.canRenameInstance = hasGroupPermission(group, 'group-instance-manage');
+                instanceInfoState.canSendAnnouncement =
+                    hasGroupPermission(group, 'group-instance-announcement-create') &&
+                    resolvedInstanceLocation.value === locationStore.lastLocation.location;
+                instanceInfoState.canLinkCalendarEvent =
+                    hasGroupPermission(group, 'group-instance-manage') &&
+                    hasGroupPermission(group, 'group-instance-calendar-link');
+            }
         }
         instanceInfoState.isAgeGated = props.instance.ageGate === true;
         if (resolvedInstanceLocation.value?.includes('~ageGate')) instanceInfoState.isAgeGated = true;
@@ -632,6 +650,7 @@
     };
 
     const closeInstance = (location) => {
+        if (!platformCapabilities.vrchatMutations) return;
         modalStore
             .confirm({
                 description: t('confirm.close_instance'),
@@ -650,6 +669,7 @@
     };
 
     const renameInstance = (location) => {
+        if (!platformCapabilities.vrchatMutations) return;
         modalStore
             .prompt({
                 title: t('prompt.rename_instance.header'),

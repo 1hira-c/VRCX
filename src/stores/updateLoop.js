@@ -19,6 +19,7 @@ import { useVRCXUpdaterStore } from './vrcxUpdater';
 import { useVrStore } from './vr';
 import { useVrcxStore } from './vrcx';
 import { watchState } from '../services/watchState';
+import { runtimeCapabilities } from '../services/runtimeCapabilities';
 
 import * as workerTimers from 'worker-timers';
 
@@ -90,40 +91,50 @@ export const useUpdateLoopStore = defineStore('UpdateLoop', () => {
                         const args = await groupRequest.getUsersGroupInstances();
                         handleGroupUserInstances(args);
                     }
-                    AppApi.CheckGameRunning();
+                    if (runtimeCapabilities.gameProcessMonitoring) {
+                        AppApi.CheckGameRunning();
+                    }
                 }
                 if (--state.nextAppUpdateCheck <= 0) {
                     state.nextAppUpdateCheck = 3600; // 1hour
-                    if (vrcxUpdaterStore.autoUpdateVRCX !== 'Off') {
+                    if (runtimeCapabilities.selfUpdate && vrcxUpdaterStore.autoUpdateVRCX !== 'Off') {
                         vrcxUpdaterStore.checkForVRCXUpdate();
                     }
-                    vrcxStore.tryAutoBackupVrcRegistry();
+                    if (runtimeCapabilities.desktopIntegration) {
+                        vrcxStore.tryAutoBackupVrcRegistry();
+                    }
                 }
                 if (--state.ipcTimeout <= 0) {
                     vrcxStore.setIpcEnabled(false);
                 }
-                if (--state.nextClearVRCXCacheCheck <= 0 && vrcxStore.clearVRCXCacheFrequency > 0) {
+                if (
+                    runtimeCapabilities.desktopIntegration &&
+                    --state.nextClearVRCXCacheCheck <= 0 &&
+                    vrcxStore.clearVRCXCacheFrequency > 0
+                ) {
                     state.nextClearVRCXCacheCheck = vrcxStore.clearVRCXCacheFrequency / 2;
                     clearVRCXCache();
                 }
                 if (--state.nextDiscordUpdate <= 0) {
                     state.nextDiscordUpdate = 3;
-                    if (discordPresenceSettingsStore.discordActive) {
+                    if (runtimeCapabilities.discord && discordPresenceSettingsStore.discordActive) {
                         discordPresenceSettingsStore.updateDiscord();
                     }
                 }
                 if (--state.nextAutoStateChange <= 0) {
                     state.nextAutoStateChange = 3;
-                    updateAutoStateChange();
+                    if (runtimeCapabilities.vrchatMutationAutomation) {
+                        updateAutoStateChange();
+                    }
                 }
-                if (LINUX && --state.nextGetLogCheck <= 0) {
+                if (LINUX && runtimeCapabilities.logWatcher && --state.nextGetLogCheck <= 0) {
                     state.nextGetLogCheck = 0.5;
                     const logLines = await LogWatcher.GetLogLines();
                     if (logLines) {
                         await Promise.all(logLines.map((logLine) => addGameLogEvent(logLine)));
                     }
                 }
-                if (LINUX && --state.nextGameRunningCheck <= 0) {
+                if (LINUX && runtimeCapabilities.gameProcessMonitoring && --state.nextGameRunningCheck <= 0) {
                     state.nextGameRunningCheck = 1;
                     await runUpdateIsGameRunningFlow(await AppApi.IsGameRunning(), await AppApi.IsSteamVRRunning());
                     vrStore.vrInit(); // TODO: make this event based

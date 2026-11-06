@@ -1,4 +1,6 @@
 import sqliteService from './sqlite.js';
+import { isWebPlatform } from '../web/platform.js';
+import { webConfigRepository } from '../web/webConfigRepository.js';
 
 /**
  * @param key
@@ -156,7 +158,9 @@ class ConfigRepository {
     }
 }
 
-var self = new ConfigRepository();
-window.configRepository = self;
+var self = isWebPlatform ? webConfigRepository : new ConfigRepository();
+if (!isWebPlatform) {
+    window.configRepository = self;
+}
 
 export { self as default, ConfigRepository, transformKey };

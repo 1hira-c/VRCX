@@ -33,6 +33,8 @@ import { useUserStore } from './user';
 import { clearVRCXCache } from '../coordinators/vrcxCoordinator';
 import { resetSearchIndexOnLogin } from '../coordinators/searchIndexCoordinator';
 import { watchState } from '../services/watchState';
+import { runtimeCapabilities } from '../services/runtimeCapabilities';
+import { isWebPlatform } from '../web/platform.js';
 
 import configRepository from '../services/config';
 
@@ -85,6 +87,15 @@ export const useVrcxStore = defineStore('Vrcx', () => {
 
     async function init() {
         try {
+            if (isWebPlatform) {
+                maxTableSize.value = await configRepository.getInt('VRCX_maxTableSize_v2', DEFAULT_MAX_TABLE_SIZE);
+                searchLimit.value = await configRepository.getInt('VRCX_searchLimit', DEFAULT_SEARCH_LIMIT);
+                database.setMaxTableSize(maxTableSize.value);
+                database.setSearchTableSize(searchLimit.value);
+                databaseReadyForAutoLogin.value = true;
+                return;
+            }
+
             if (LINUX) {
                 try {
                     window.electron.ipcRenderer.on('launch-command', (command) => {
@@ -161,14 +172,18 @@ export const useVrcxStore = defineStore('Vrcx', () => {
             }
             database.setSearchTableSize(searchLimit.value);
 
-            refreshCustomScript();
+            if (runtimeCapabilities.customRendererExtensions) {
+                refreshCustomScript();
+            }
             databaseReadyForAutoLogin.value = true;
         } finally {
             resolveDatabaseInit();
         }
     }
 
-    resetSearchIndexOnLogin();
+    if (!isWebPlatform) {
+        resetSearchIndexOnLogin();
+    }
     init();
 
     async function updateDatabaseVersion() {
@@ -505,7 +520,7 @@ export const useVrcxStore = defineStore('Vrcx', () => {
         () => watchState.isLoggedIn,
         (isLoggedIn) => {
             isRegistryBackupDialogVisible.value = false;
-            if (isLoggedIn) {
+            if (isLoggedIn && !isWebPlatform) {
                 startupLaunchCommand();
             }
         },

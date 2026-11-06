@@ -36,14 +36,35 @@ const refreshOwnedItems = debounce(() => useUserStore().getAllProductPurchases()
  */
 export const wsState = reactive({
     connected: false,
+    connecting: false,
     messageCount: 0,
-    bytesReceived: 0
+    bytesReceived: 0,
+    connectedAt: null,
+    lastEventAt: null,
+    lastAttemptAt: null,
+    nextRetryAt: null,
+    errorCode: null
 });
+
+function getPipelineErrorCode(error) {
+    const status = Number(error?.status);
+    if (Number.isFinite(status) && status > 0) {
+        return `http_${status}`;
+    }
+    if (typeof error?.name === 'string' && error.name) {
+        return error.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, '_');
+    }
+    return 'pipeline_error';
+}
 
 export function initWebsocket() {
     if (!watchState.isFriendsLoaded || webSocket !== null) {
         return;
     }
+    wsState.connecting = true;
+    wsState.lastAttemptAt = new Date().toJSON();
+    wsState.nextRetryAt = null;
+    wsState.errorCode = null;
     return request('auth', {
         method: 'GET'
     })
@@ -53,9 +74,14 @@ export function initWebsocket() {
             };
             if (args.json.ok) {
                 connectWebSocket(args.json.token);
+            } else {
+                wsState.connecting = false;
+                wsState.errorCode = 'pipeline_auth_rejected';
             }
         })
         .catch((err) => {
+            wsState.connecting = false;
+            wsState.errorCode = getPipelineErrorCode(err);
             console.error('WebSocket init error:', err);
         });
 }
@@ -74,6 +100,10 @@ function connectWebSocket(token) {
     const socket = new WebSocket(`${AppDebug.websocketDomain}/?auth=${token}`);
     socket.onopen = () => {
         wsState.connected = true;
+        wsState.connecting = false;
+        wsState.connectedAt = new Date().toJSON();
+        wsState.nextRetryAt = null;
+        wsState.errorCode = null;
         if (!webSocketClosedGracefully && watchState.isLoggedIn && watchState.isFriendsLoaded) {
             console.warn('WebSocket reconnected after unexpected closure');
             webSocketClosedGracefully = true;
@@ -86,6 +116,7 @@ function connectWebSocket(token) {
     };
     socket.onclose = ({ code, reason }) => {
         wsState.connected = false;
+        wsState.connecting = false;
         const isCurrentSocket = webSocket === socket;
         if (isCurrentSocket) {
             webSocket = null;
@@ -96,10 +127,14 @@ function connectWebSocket(token) {
             console.error('Error closing WebSocket:', err);
         }
         webSocketClosedGracefully = code === 1000 || code === 1001; // Normal Closure or Going Away
+        wsState.errorCode = webSocketClosedGracefully ? null : `websocket_${code || 'closed'}`;
         if (!webSocketClosedGracefully || AppDebug.debugWebSocket) {
             console.log('WebSocket closed', { code, reason });
         }
+        const willRetry = watchState.isLoggedIn && watchState.isFriendsLoaded;
+        wsState.nextRetryAt = willRetry ? new Date(Date.now() + 5000).toJSON() : null;
         workerTimers.setTimeout(() => {
+            wsState.nextRetryAt = null;
             if (watchState.isLoggedIn && watchState.isFriendsLoaded && webSocket === null) {
                 initWebsocket();
             }
@@ -119,6 +154,7 @@ function connectWebSocket(token) {
     };
     socket.onmessage = ({ data }) => {
         try {
+            wsState.lastEventAt = new Date().toJSON();
             wsState.messageCount++;
             wsState.bytesReceived += data.length;
             if (lastWebSocketMessage === data) {
@@ -162,6 +198,9 @@ export function closeWebSocket() {
     socket.onclose = null;
     webSocket = null;
     wsState.connected = false;
+    wsState.connecting = false;
+    wsState.nextRetryAt = null;
+    wsState.errorCode = null;
     try {
         socket.close();
     } catch (err) {

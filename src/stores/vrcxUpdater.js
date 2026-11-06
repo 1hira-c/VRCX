@@ -9,6 +9,8 @@ import { getWhatsNewRelease, normalizeReleaseVersion } from '../shared/constants
 import { changeLogRemoveLinks } from '../shared/utils';
 
 import configRepository from '../services/config';
+import { isWebPlatform } from '../web/platform.js';
+import { runtimeCapabilities } from '../services/runtimeCapabilities';
 
 import * as workerTimers from 'worker-timers';
 
@@ -52,6 +54,17 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
     const updateToastRelease = ref('');
 
     async function initVRCXUpdaterSettings() {
+        if (isWebPlatform) {
+            noUpdater.value = true;
+            autoUpdateVRCX.value = 'Off';
+            return;
+        }
+        if (!runtimeCapabilities.selfUpdate) {
+            noUpdater.value = true;
+            autoUpdateVRCX.value = 'Off';
+            appVersion.value = await AppApi.GetVersion();
+            return;
+        }
         if (LINUX) {
             arch.value = await window.electron.getArch();
             noUpdater.value = await window.electron.getNoUpdater();

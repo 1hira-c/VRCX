@@ -11,7 +11,7 @@
                 <RefreshCw v-else />
             </Button>
             <TooltipWrapper
-                v-if="canManageGroupGalleries()"
+                v-if="platformCapabilities.vrchatMutations && canManageGroupGalleries()"
                 side="top"
                 :content="t('dialog.group.gallery.create_tooltip')">
                 <Button
@@ -26,7 +26,7 @@
             </TooltipWrapper>
         </div>
         <GroupGalleryForm
-            v-if="isCreatingGallery"
+            v-if="platformCapabilities.vrchatMutations && isCreatingGallery"
             :form="galleryForm"
             :saving="isSavingGallery"
             :submit-label="t('dialog.group.gallery.create')"
@@ -56,7 +56,7 @@
                 :key="`content-${index}`"
                 v-slot:[String(index)]>
                 <GroupGalleryForm
-                    v-if="editingGalleryId === gallery.id"
+                    v-if="platformCapabilities.vrchatMutations && editingGalleryId === gallery.id"
                     :form="galleryForm"
                     :saving="isSavingGallery"
                     :submit-label="t('dialog.group.gallery.save')"
@@ -65,7 +65,7 @@
                 <div v-else class="flex items-center gap-2 p-2">
                     <span class="flex-1 text-xs text-muted-foreground" v-text="gallery.description" />
                     <TooltipWrapper
-                        v-if="canSubmitToGallery(gallery)"
+                        v-if="platformCapabilities.vrchatMutations && canSubmitToGallery(gallery)"
                         side="top"
                         :content="t('dialog.group.gallery.add_image_tooltip')">
                         <Button
@@ -78,7 +78,7 @@
                         </Button>
                     </TooltipWrapper>
                     <TooltipWrapper
-                        v-if="canManageGallery(gallery)"
+                        v-if="platformCapabilities.vrchatMutations && canManageGallery(gallery)"
                         side="top"
                         :content="t('dialog.group.gallery.edit_tooltip')">
                         <Button
@@ -91,7 +91,7 @@
                         </Button>
                     </TooltipWrapper>
                     <TooltipWrapper
-                        v-if="canManageGroupGalleries()"
+                        v-if="platformCapabilities.vrchatMutations && canManageGroupGalleries()"
                         side="top"
                         :content="t('dialog.group.gallery.delete_tooltip')">
                         <Button
@@ -99,7 +99,7 @@
                             variant="ghost"
                             class="text-muted-foreground hover:text-foreground"
                             :aria-label="t('dialog.group.gallery.delete_tooltip')"
-                            @click="deleteGallery(gallery)">
+                            @click="platformCapabilities.vrchatMutations && deleteGallery(gallery)">
                             <Trash2 />
                         </Button>
                     </TooltipWrapper>
@@ -116,7 +116,7 @@
                         :key="image.id"
                         class="group relative p-0 overflow-hidden transition-shadow hover:shadow-md">
                         <TooltipWrapper
-                            v-if="canDeleteImage(gallery, image)"
+                            v-if="platformCapabilities.vrchatMutations && canDeleteImage(gallery, image)"
                             side="top"
                             :content="t('dialog.group.gallery.delete_image_tooltip')">
                             <Button
@@ -124,7 +124,7 @@
                                 variant="secondary"
                                 class="absolute top-1.5 right-1.5 z-10 opacity-0 transition-opacity group-hover:opacity-100"
                                 :aria-label="t('dialog.group.gallery.delete_image_tooltip')"
-                                @click.stop="deleteGalleryImage(image)">
+                                @click.stop="platformCapabilities.vrchatMutations && deleteGalleryImage(image)">
                                 <Trash2 />
                             </Button>
                         </TooltipWrapper>
@@ -144,7 +144,10 @@
                 </div>
             </template>
         </TabsUnderline>
-        <GallerySelectDialog :gallery-select-dialog="gallerySelectDialog" @select-image="handleGalleryImageSelect" />
+        <GallerySelectDialog
+            v-if="platformCapabilities.vrchatMutations"
+            :gallery-select-dialog="gallerySelectDialog"
+            @select-image="handleGalleryImageSelect" />
     </div>
 </template>
 
@@ -162,6 +165,7 @@
     import { useGroupGalleries } from './useGroupGalleries';
     import GallerySelectDialog from './GallerySelectDialog.vue';
     import GroupGalleryForm from './GroupGalleryForm.vue';
+    import { platformCapabilities } from '../../../web/platform';
 
     const { t } = useI18n();
     const { groupDialog } = storeToRefs(useGroupStore());
@@ -209,12 +213,14 @@
     }
 
     function startCreateGallery() {
+        if (!platformCapabilities.vrchatMutations) return;
         editingGalleryId.value = '';
         isCreatingGallery.value = true;
         galleryForm.value = { name: '', description: '', membersOnly: false };
     }
 
     function startEditGallery(gallery) {
+        if (!platformCapabilities.vrchatMutations) return;
         isCreatingGallery.value = false;
         editingGalleryId.value = gallery.id;
         galleryForm.value = {
@@ -230,6 +236,7 @@
     }
 
     async function saveGallery() {
+        if (!platformCapabilities.vrchatMutations) return;
         const form = galleryForm.value;
         const fields = {
             name: form.name.trim(),
@@ -250,6 +257,7 @@
     }
 
     function showAddImageDialog(gallery) {
+        if (!platformCapabilities.vrchatMutations) return;
         addImageGalleryId = gallery.id;
         gallerySelectDialog.value = {
             visible: true,
@@ -260,6 +268,7 @@
     }
 
     function handleGalleryImageSelect({ fileId }) {
+        if (!platformCapabilities.vrchatMutations) return;
         if (!fileId || !addImageGalleryId) {
             return;
         }

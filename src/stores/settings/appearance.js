@@ -35,6 +35,7 @@ import { useUserStore } from '../user';
 import { useVrStore } from '../vr';
 import { useVrcxStore } from '../vrcx';
 import { watchState } from '../../services/watchState';
+import { isWebPlatform } from '../../web/platform.js';
 
 import configRepository from '../../services/config';
 
@@ -42,13 +43,13 @@ export const useAppearanceSettingsStore = defineStore(
     'AppearanceSettings',
 
     () => {
-        const vrStore = useVrStore();
-        const feedStore = useFeedStore();
-        const gameLogStore = useGameLogStore();
-        const vrcxStore = useVrcxStore();
-        const userStore = useUserStore();
+        const vrStore = isWebPlatform ? null : useVrStore();
+        const feedStore = isWebPlatform ? null : useFeedStore();
+        const gameLogStore = isWebPlatform ? null : useGameLogStore();
+        const vrcxStore = isWebPlatform ? null : useVrcxStore();
+        const userStore = isWebPlatform ? null : useUserStore();
         const router = useRouter();
-        const uiStore = useUiStore();
+        const uiStore = isWebPlatform ? null : useUiStore();
         const { locale } = useI18n();
 
         const MAX_TABLE_PAGE_SIZE = 1000;
@@ -269,7 +270,9 @@ export const useAppearanceSettingsStore = defineStore(
                 [0, 1, 6].includes(weekStartsOnConfig) ? weekStartsOnConfig : 1
             );
 
-            currentCulture.value = await AppApi.CurrentCulture();
+            currentCulture.value = isWebPlatform
+                ? Intl.DateTimeFormat().resolvedOptions().locale
+                : await AppApi.CurrentCulture();
 
             sidebarSortMethods.value = JSON.parse(sidebarSortMethodsConfig);
             if (sidebarSortMethods.value?.length === 3) {
@@ -318,7 +321,7 @@ export const useAppearanceSettingsStore = defineStore(
 
             updateTrustColorClasses(trustColor.value);
 
-            vrStore.updateVRConfigVars();
+            vrStore?.updateVRConfigVars();
         }
 
         initAppearanceSettings();
@@ -338,7 +341,7 @@ export const useAppearanceSettingsStore = defineStore(
          */
         async function changeAppLanguage(language) {
             await setAppLanguage(language);
-            vrStore.updateVRConfigVars();
+            vrStore?.updateVRConfigVars();
         }
 
         /**
@@ -363,6 +366,9 @@ export const useAppearanceSettingsStore = defineStore(
          * @returns {Promise<void>}
          */
         async function updateTrustColor(field, color, setRandomColor = false) {
+            if (isWebPlatform || !userStore) {
+                return;
+            }
             if (setRandomColor) {
                 setRandomUserColours();
             }
@@ -392,9 +398,16 @@ export const useAppearanceSettingsStore = defineStore(
          * @param customFunc
          */
         async function userColourInit(customFunc) {
+            if (isWebPlatform || !userStore) {
+                return;
+            }
             let dictObject = null;
             if (typeof customFunc === 'function') {
                 dictObject = customFunc(userStore.cachedUsers.keys());
+            } else if (isWebPlatform) {
+                // The desktop colour service is unavailable in the browser.
+                // Trust colours remain available through applyUserTrustLevel.
+                return;
             } else {
                 dictObject = await AppApi.GetColourBulk(Array.from(userStore.cachedUsers.keys()));
             }
@@ -464,7 +477,7 @@ export const useAppearanceSettingsStore = defineStore(
             }
             const { isDark } = changeAppThemeStyle(mode);
             isDarkMode.value = isDark;
-            vrStore.updateVRConfigVars();
+            vrStore?.updateVRConfigVars();
             updateTrustColor(undefined, undefined);
         }
 
@@ -539,7 +552,7 @@ export const useAppearanceSettingsStore = defineStore(
         function setNotificationIconDot() {
             notificationIconDot.value = !notificationIconDot.value;
             configRepository.setBool('VRCX_notificationIconDot', notificationIconDot.value);
-            uiStore.updateTrayIconNotify();
+            uiStore?.updateTrayIconNotify();
         }
         function setHideNicknames() {
             hideNicknames.value = !hideNicknames.value;
@@ -850,8 +863,8 @@ export const useAppearanceSettingsStore = defineStore(
         };
 
         function showTableLimitsDialog() {
-            tableLimitsDialog.value.maxTableSize = Number(vrcxStore.maxTableSize ?? 500);
-            tableLimitsDialog.value.searchLimit = Number(vrcxStore.searchLimit ?? 50000);
+            tableLimitsDialog.value.maxTableSize = Number(vrcxStore?.maxTableSize ?? 500);
+            tableLimitsDialog.value.searchLimit = Number(vrcxStore?.searchLimit ?? 50000);
             tableLimitsDialog.value.visible = true;
         }
 
@@ -860,6 +873,10 @@ export const useAppearanceSettingsStore = defineStore(
         }
 
         async function saveTableLimitsDialog() {
+            if (isWebPlatform || !vrcxStore || !feedStore || !gameLogStore) {
+                tableLimitsDialog.value.visible = false;
+                return;
+            }
             const nextMaxTableSize = clampLimit(
                 tableLimitsDialog.value.maxTableSize,
                 TABLE_MAX_SIZE_MIN,
@@ -888,7 +905,7 @@ export const useAppearanceSettingsStore = defineStore(
         }
 
         async function tryInitUserColours() {
-            if (!randomUserColours.value) {
+            if (isWebPlatform || !userStore || !randomUserColours.value) {
                 return;
             }
             const colour = await getNameColour(userStore.currentUser.id, isDarkMode.value);

@@ -27,7 +27,11 @@ const mocks = vi.hoisted(() => ({
         playerList: new Set(['u1', 'u2'])
     },
     currentUser: { id: 'usr_me' },
-    cachedGroups: new Map()
+    cachedGroups: new Map(),
+    platformCapabilities: {
+        desktopIntegration: true,
+        vrchatMutations: true
+    }
 }));
 
 vi.mock('pinia', async (importOriginal) => {
@@ -90,6 +94,7 @@ vi.mock('../../composables/useInviteChecks', () => ({
 }));
 
 vi.mock('../../shared/utils', () => ({
+    debounce: (callback) => callback,
     parseLocation: (...args) => mocks.parseLocation(...args),
     hasGroupPermission: (...args) => mocks.hasGroupPermission(...args),
     formatDateFilter: (...args) => mocks.formatDateFilter(...args)
@@ -108,6 +113,15 @@ vi.mock('../../coordinators/userCoordinator', () => ({
     showUserDialog: (...args) => mocks.showUserDialog(...args)
 }));
 
+vi.mock('../../web/platform', () => ({
+    isWebPlatform: false,
+    createPlatformCapabilities: () => mocks.platformCapabilities,
+    platformCapabilities: mocks.platformCapabilities,
+    webCapabilities: mocks.platformCapabilities,
+    isReadOnlyWeb: false,
+    isPlatformViewAvailable: () => true
+}));
+
 vi.mock('@/components/ui/button', () => ({
     Button: {
         emits: ['click'],
@@ -122,7 +136,8 @@ vi.mock('lucide-vue-next', () => ({
     Mail: { template: '<i data-testid="icon-mail" />' },
     MapPin: { template: '<i data-testid="icon-map" />' },
     RefreshCw: { template: '<i data-testid="icon-refresh" />' },
-    UsersRound: { template: '<i data-testid="icon-users" />' }
+    UsersRound: { template: '<i data-testid="icon-users" />' },
+    UserPlus2: { template: '<i data-testid="icon-friends" />' }
 }));
 
 import InstanceActionBar from '../InstanceActionBar.vue';
@@ -200,6 +215,8 @@ describe('InstanceActionBar.vue', () => {
         mocks.lastLocation.playerList = new Set(['u1', 'u2']);
         mocks.currentUser.id = 'usr_me';
         mocks.cachedGroups = new Map();
+        mocks.platformCapabilities.desktopIntegration = true;
+        mocks.platformCapabilities.vrchatMutations = true;
     });
 
     it('renders launch and invite buttons when invite-self is allowed', () => {
@@ -296,5 +313,33 @@ describe('InstanceActionBar.vue', () => {
         });
 
         expect(wrapper.findAll('[data-testid="btn"]')).toHaveLength(0);
+    });
+
+    it('keeps refresh and history available while hiding native and mutation actions on Web', async () => {
+        mocks.platformCapabilities.desktopIntegration = false;
+        mocks.platformCapabilities.vrchatMutations = false;
+        const onRefresh = vi.fn();
+        const onHistory = vi.fn();
+        const wrapper = mountBar({
+            onRefresh,
+            onHistory,
+            showInstanceInfo: true
+        });
+
+        expect(wrapper.find('[data-testid="icon-login"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="icon-mail"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="icon-refresh"]').exists()).toBe(true);
+        expect(wrapper.find('[data-testid="icon-history"]').exists()).toBe(true);
+
+        const buttons = wrapper.findAll('[data-testid="btn"]');
+        expect(buttons).toHaveLength(2);
+        await buttons[0].trigger('click');
+        await buttons[1].trigger('click');
+
+        expect(onRefresh).toHaveBeenCalledTimes(1);
+        expect(onHistory).toHaveBeenCalledTimes(1);
+        expect(mocks.showLaunchDialog).not.toHaveBeenCalled();
+        expect(mocks.selfInvite).not.toHaveBeenCalled();
+        expect(mocks.closeInstance).not.toHaveBeenCalled();
     });
 });

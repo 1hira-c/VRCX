@@ -33,7 +33,7 @@
                         {{ authorText }}
                     </ItemDescription>
                 </ItemContent>
-                <ItemActions v-if="editMode && !isLocalFavorite" @click.stop>
+                <ItemActions v-if="editMode && !isLocalFavorite && platformCapabilities.vrchatMutations" @click.stop>
                     <Checkbox v-model="isSelected" />
                 </ItemActions>
                 <DropdownMenu v-else-if="!editMode">
@@ -86,7 +86,10 @@
             </WorldActionMenuItems>
         </ContextMenuContent>
     </ContextMenu>
-    <NewInstanceDialog :new-instance-dialog-location-tag="newInstanceDialogLocationTag" :last-location="lastLocation" />
+    <NewInstanceDialog
+        v-if="platformCapabilities.localGameIntegration"
+        :new-instance-dialog-location-tag="newInstanceDialogLocationTag"
+        :last-location="lastLocation" />
 </template>
 
 <script setup>
@@ -120,6 +123,7 @@
     import { showWorldDialog } from '../../../coordinators/worldCoordinator';
     import { useFavoriteStore, useInviteStore, useLocationStore } from '../../../stores';
     import NewInstanceDialog from '../../../components/dialogs/NewInstanceDialog/NewInstanceDialog.vue';
+    import { platformCapabilities } from '../../../web/platform';
 
     const props = defineProps({
         group: [Object, String],

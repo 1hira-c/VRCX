@@ -22,12 +22,12 @@
                         size="icon-sm"
                         :disabled="isRefreshFriendsLoading"
                         :ariaLabel="t('side_panel.refresh_tooltip')"
-                        @click="runRefreshFriendsListFlow">
+                        @click="refreshSidebar">
                         <Spinner v-if="isRefreshFriendsLoading" />
                         <RefreshCw v-else />
                     </Button>
                 </TooltipWrapper>
-                <ContextMenu v-if="hasUnseenNotifications">
+                <ContextMenu v-if="hasUnseenNotifications && !isReadOnlyWeb">
                     <ContextMenuTrigger as-child>
                         <TooltipWrapper side="bottom" :content="t('side_panel.notification_center.title')">
                             <Button
@@ -54,8 +54,14 @@
                         size="icon-sm"
                         :ariaLabel="t('side_panel.notification_center.title')"
                         @click="isNotificationCenterOpen = !isNotificationCenterOpen"
-                        @contextmenu.prevent="toast.info(t('side_panel.notification_center.no_unseen_notifications'))">
+                        @contextmenu.prevent="
+                            !hasUnseenNotifications &&
+                            toast.info(t('side_panel.notification_center.no_unseen_notifications'))
+                        ">
                         <Bell />
+                        <span
+                            v-if="hasUnseenNotifications"
+                            class="absolute top-1 right-1.25 size-1.5 rounded-full bg-red-500" />
                     </Button>
                 </TooltipWrapper>
                 <Popover v-model:open="isSettingsPopoverOpen">
@@ -362,6 +368,8 @@
     import { runRefreshFriendsListFlow } from '../../coordinators/friendSyncCoordinator';
     import { normalizeFavoriteGroupsChange, resolveFavoriteGroups } from './sidebarSettingsUtils';
     import { useQuickSearchStore } from '../../stores/quickSearch';
+    import { isReadOnlyWeb, isWebPlatform } from '../../web/platform';
+    import { webSession } from '../../web/session';
 
     import FriendsSidebar from './components/FriendsSidebar.vue';
     import QuickSearchDialog from '../../components/QuickSearchDialog.vue';
@@ -388,7 +396,16 @@
     }
 
     function markNotificationsRead() {
+        if (isReadOnlyWeb) return;
         notificationStore.markAllAsSeen();
+    }
+
+    async function refreshSidebar() {
+        if (isWebPlatform) {
+            await webSession.refreshAll();
+            return;
+        }
+        runRefreshFriendsListFlow();
     }
 
     const appearanceSettingsStore = useAppearanceSettingsStore();

@@ -1,6 +1,8 @@
 import { parseLocation } from './location';
 import { queryRequest } from '../../api';
 import { rpcWorlds } from '../constants';
+import { getWebEntity } from '../../web/entities';
+import { isWebPlatform } from '../../web/platform';
 
 /**
  * @param {string} location
@@ -12,10 +14,15 @@ async function getWorldName(location) {
     const L = parseLocation(location);
     if (L.isRealInstance && L.worldId) {
         try {
-            const args = await queryRequest.fetch('world.dialog', {
-                worldId: L.worldId
-            });
-            worldName = args.ref.name;
+            if (isWebPlatform) {
+                const world = await getWebEntity('world', L.worldId);
+                worldName = world.name;
+            } else {
+                const args = await queryRequest.fetch('world.dialog', {
+                    worldId: L.worldId
+                });
+                worldName = args.ref.name;
+            }
         } catch (e) {
             console.error('getWorldName failed location', location, e);
         }

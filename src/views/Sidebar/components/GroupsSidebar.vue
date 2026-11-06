@@ -61,13 +61,19 @@
                                             </template>
                                         </div>
                                     </ContextMenuTrigger>
-                                    <ContextMenuContent>
+                                    <ContextMenuContent
+                                        v-if="
+                                            platformCapabilities.vrchatMutations ||
+                                            platformCapabilities.localGameIntegration
+                                        ">
                                         <ContextMenuItem
+                                            v-if="platformCapabilities.localGameIntegration"
                                             :disabled="!checkCanInviteSelf(item.row.location)"
                                             @click="groupInstanceLaunch(item.row.location)">
                                             {{ t('dialog.user.info.launch_invite_tooltip') }}
                                         </ContextMenuItem>
                                         <ContextMenuItem
+                                            v-if="platformCapabilities.vrchatMutations"
                                             :disabled="!checkCanInviteSelf(item.row.location)"
                                             @click="groupInstanceSelfInvite(item.row.location)">
                                             {{ t('dialog.user.info.self_invite_tooltip') }}
@@ -105,6 +111,7 @@
     import { useAppearanceSettingsStore, useGroupStore, useLaunchStore } from '../../../stores';
     import { showGroupDialog } from '../../../coordinators/groupCoordinator';
     import { instanceRequest } from '../../../api';
+    import { platformCapabilities } from '../../../web/platform';
 
     import BackToTop from '../../../components/BackToTop.vue';
     import Location from '../../../components/Location.vue';
@@ -210,6 +217,7 @@
      * @param {string} location - Instance location tag
      */
     function groupInstanceLaunch(location) {
+        if (!platformCapabilities.localGameIntegration) return;
         if (!location) return;
         launchStore.showLaunchDialog(location);
     }
@@ -218,6 +226,7 @@
      * @param {string} location - Instance location tag
      */
     function groupInstanceSelfInvite(location) {
+        if (!platformCapabilities.vrchatMutations) return;
         if (!location) return;
         const L = parseLocation(location);
         if (!L.isRealInstance) return;

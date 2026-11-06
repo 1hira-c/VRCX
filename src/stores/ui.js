@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router';
 import { AppDebug } from '../services/appConfig';
 import { refreshCustomCss } from '../shared/utils/base/ui';
 import { updateLocalizedStrings } from '../plugins/i18n';
+import { isWebPlatform } from '../web/platform.js';
 import { useAppearanceSettingsStore } from './settings/appearance';
 import { useAvatarStore } from './avatar';
 import { useGroupStore } from './group';
@@ -26,11 +27,8 @@ import { useUserStore } from './user';
 import { useWorldStore } from './world';
 
 export const useUiStore = defineStore('Ui', () => {
-    const notificationStore = useNotificationStore();
-    const instanceStore = useInstanceStore();
     const router = useRouter();
     const keys = useMagicKeys();
-    const { directAccessPaste } = useSearchStore();
     const appearanceSettings = useAppearanceSettingsStore();
 
     const ctrlR = keys['Ctrl+R'];
@@ -52,14 +50,14 @@ export const useUiStore = defineStore('Ui', () => {
     });
 
     watch(ctrlD, (isPressed) => {
-        if (isPressed) {
-            directAccessPaste();
+        if (isPressed && !isWebPlatform) {
+            useSearchStore().directAccessPaste();
         }
     });
 
     watch(metaD, (isPressed) => {
-        if (isPressed) {
-            directAccessPaste();
+        if (isPressed && !isWebPlatform) {
+            useSearchStore().directAccessPaste();
         }
     });
 
@@ -74,7 +72,7 @@ export const useUiStore = defineStore('Ui', () => {
     });
 
     watch(altShiftR, (isPressed) => {
-        if (isPressed) {
+        if (isPressed && !isWebPlatform) {
             refreshCustomCss();
             updateLocalizedStrings();
             toast.success('Custom CSS and localization strings refreshed');
@@ -159,19 +157,19 @@ export const useUiStore = defineStore('Ui', () => {
             return;
         }
         if (item.type === 'previous-instances-user') {
-            instanceStore.showPreviousInstancesListDialog('user', item.id);
+            useInstanceStore().showPreviousInstancesListDialog('user', item.id);
             return;
         }
         if (item.type === 'previous-instances-world') {
-            instanceStore.showPreviousInstancesListDialog('world', item.id);
+            useInstanceStore().showPreviousInstancesListDialog('world', item.id);
             return;
         }
         if (item.type === 'previous-instances-group') {
-            instanceStore.showPreviousInstancesListDialog('group', item.id);
+            useInstanceStore().showPreviousInstancesListDialog('group', item.id);
             return;
         }
         if (item.type === 'previous-instances-info') {
-            instanceStore.showPreviousInstancesInfoDialog(item.id);
+            useInstanceStore().showPreviousInstancesInfoDialog(item.id);
             return;
         }
         if (item.type === 'group-member-moderation') {
@@ -275,6 +273,9 @@ export const useUiStore = defineStore('Ui', () => {
     });
 
     function showConsole() {
+        if (isWebPlatform) {
+            return;
+        }
         AppApi.ShowDevTools();
         if (AppDebug.debug || AppDebug.debugWebRequests || AppDebug.debugWebSocket || AppDebug.debugUserDiff) {
             return;
@@ -295,8 +296,8 @@ export const useUiStore = defineStore('Ui', () => {
             if (routeName) {
                 const name = String(routeName);
                 removeNotify(name);
-                if (name === 'notification') {
-                    notificationStore.clearUnseenNotifications();
+                if (name === 'notification' && !isWebPlatform) {
+                    useNotificationStore().clearUnseenNotifications();
                 }
             }
         }
@@ -327,6 +328,9 @@ export const useUiStore = defineStore('Ui', () => {
 
         if (trayIconNotify.value !== newState || force) {
             trayIconNotify.value = newState;
+            if (isWebPlatform) {
+                return;
+            }
             if (LINUX) {
                 window.electron.setTrayIconNotification(trayIconNotify.value);
                 return;

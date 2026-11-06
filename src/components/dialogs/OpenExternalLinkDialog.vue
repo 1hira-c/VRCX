@@ -14,6 +14,7 @@
 
     import { useExternalLinkStore } from '@/stores';
     import { copyToClipboard } from '@/shared/utils/appActions';
+    import { isWebPlatform } from '@/web/platform';
 
     const externalLinkStore = useExternalLinkStore();
     const { externalLinkDialog } = storeToRefs(externalLinkStore);
@@ -45,11 +46,12 @@
         if (!externalLinkDialog.value.visible) return;
         const link = externalLinkDialog.value.link;
         setOpen(false);
-        if (vrcdnPreviewUrl.value) {
-            AppApi.OpenLink(vrcdnPreviewUrl.value);
+        const target = vrcdnPreviewUrl.value || link;
+        if (isWebPlatform) {
+            window.open(target, '_blank', 'noopener,noreferrer');
             return;
         }
-        AppApi.OpenLink(link);
+        AppApi.OpenLink(target);
     }
 
     function onKeyDown(event) {

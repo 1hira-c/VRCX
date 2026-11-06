@@ -219,7 +219,7 @@
                     </Badge>
                 </TooltipWrapper>
                 <TooltipWrapper
-                    v-if="userDialog.ref.discordId"
+                    v-if="platformCapabilities.desktopIntegration && userDialog.ref.discordId"
                     side="top"
                     :content="t('dialog.user.tags.open_in_discord')">
                     <Badge
@@ -335,7 +335,8 @@
                                         {{ t('dialog.user.badges.assigned') }}:
                                         {{ formatDateFilter(badge.assignedAt, 'long') }}
                                     </span>
-                                    <template v-if="userDialog.id === currentUser.id">
+                                    <template
+                                        v-if="platformCapabilities.vrchatMutations && userDialog.id === currentUser.id">
                                         <br />
                                         <label class="inline-flex items-center gap-2" style="margin-top: 6px">
                                             <Checkbox
@@ -359,7 +360,7 @@
             </div>
 
             <div
-                v-if="currentUser.id === userDialog.id"
+                v-if="platformCapabilities.vrchatMutations && currentUser.id === userDialog.id"
                 class="border-t border-muted-foreground/20 flex flex-col gap-1.5">
                 <div
                     class="flex justify-between items-center text-xs cursor-pointer hover:text-foreground mt-1.5"
@@ -541,6 +542,7 @@
     import UserActionDropdown from './UserActionDropdown.vue';
     import { showGroupDialog } from '@/coordinators/groupCoordinator';
     import { getAvatarName } from '@/coordinators/avatarCoordinator';
+    import { isWebPlatform, platformCapabilities } from '../../../web/platform';
 
     const props = defineProps({
         getUserStateText: {
@@ -595,6 +597,7 @@
         () => userDialog.value.publicProfileRef?.iconUrl,
         async (iconUrl) => {
             hasAvatarSet.value = false;
+            if (isWebPlatform) return;
             // check if image is from an avatar
             const avatarInfo = await getAvatarName(iconUrl);
             if (iconUrl === userDialog.value.publicProfileRef?.iconUrl) {

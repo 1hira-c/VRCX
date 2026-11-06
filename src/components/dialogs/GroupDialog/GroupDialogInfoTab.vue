@@ -75,7 +75,9 @@
                 </span>
                 <div
                     v-if="
-                        groupDialog.announcement.id && hasGroupPermission(groupDialog.ref, 'group-announcement-manage')
+                        platformCapabilities.vrchatMutations &&
+                        groupDialog.announcement.id &&
+                        hasGroupPermission(groupDialog.ref, 'group-announcement-manage')
                     "
                     class="flex gap-1">
                     <Button
@@ -235,6 +237,7 @@
     import GroupCalendarEventCard from '../../../views/Tools/components/GroupCalendarEventCard.vue';
     import InstanceActionBar from '../../InstanceActionBar.vue';
     import { showUserDialog } from '../../../coordinators/userCoordinator';
+    import { platformCapabilities } from '../../../web/platform';
 
     defineProps({
         showGroupPostEditDialog: {

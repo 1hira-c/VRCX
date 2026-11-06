@@ -56,6 +56,7 @@
         <template v-else-if="!friend.ref && !isRefreshFriendsLoading">
             <span>{{ friend.name || friend.id }}</span>
             <Button
+                v-if="platformCapabilities.vrchatMutations"
                 size="sm"
                 variant="ghost"
                 class="mr-1 w-6 h-6 text-xs"
@@ -86,6 +87,7 @@
     import '@/styles/status-icon.css';
     import { showUserDialog } from '../../../coordinators/userCoordinator';
     import { confirmDeleteFriend } from '../../../coordinators/friendRelationshipCoordinator';
+    import { platformCapabilities } from '../../../web/platform';
 
     const props = defineProps({
         friend: { type: Object, required: true },

@@ -61,6 +61,8 @@ import { useUserStore } from '../stores';
 import { applyGroup } from '../coordinators/groupCoordinator';
 import { queryClient } from '../queries';
 import { request } from '../services/request';
+import { isWebPlatform } from '../web/platform';
+import { webApi } from '../web/api';
 
 function getCurrentUserId() {
     return useUserStore().currentUser.id;
@@ -137,9 +139,10 @@ const groupReq = {
         });
     },
     getRepresentedGroup(params: { userId: string }): Promise<{ json: Json<RepresentedGroup>; params }> {
-        return request(`users/${params.userId}/groups/represented`, {
-            method: 'GET'
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getUserRepresentedGroup(params.userId)
+            : request(`users/${params.userId}/groups/represented`, { method: 'GET' });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -148,9 +151,10 @@ const groupReq = {
         });
     },
     getGroups(params: { userId: string }): Promise<{ json: Json<LimitedUserGroups[]>; params }> {
-        return request(`users/${params.userId}/groups`, {
-            method: 'GET'
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getUserGroups(params.userId)
+            : request(`users/${params.userId}/groups`, { method: 'GET' });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -314,10 +318,10 @@ const groupReq = {
     getGroupPosts(
         params: { groupId: string } & GetGroupPosts['query']
     ): Promise<{ json: Json<GetGroupPostsResponse>; params: { groupId: string } & GetGroupPosts['query'] }> {
-        return request(`groups/${params.groupId}/posts`, {
-            method: 'GET',
-            params
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getGroupPosts(params.groupId, params)
+            : request(`groups/${params.groupId}/posts`, { method: 'GET', params });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -360,9 +364,10 @@ const groupReq = {
         groupId: string;
         userId: string;
     }): Promise<{ json: Json<GetGroupMemberResponse>; params; ref?: any }> {
-        return request(`groups/${params.groupId}/members/${params.userId}`, {
-            method: 'GET'
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getGroupMember(params.groupId, params.userId)
+            : request(`groups/${params.groupId}/members/${params.userId}`, { method: 'GET' });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -373,10 +378,10 @@ const groupReq = {
     getGroupMembers(
         params: { groupId: string } & GetGroupMembers['query']
     ): Promise<{ json: Json<GroupMember[]>; params: { groupId: string } & GetGroupMembers['query'] }> {
-        return request(`groups/${params.groupId}/members`, {
-            method: 'GET',
-            params
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getGroupMembers(params.groupId, params)
+            : request(`groups/${params.groupId}/members`, { method: 'GET', params });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -387,10 +392,10 @@ const groupReq = {
     getGroupMembersSearch(
         params: { groupId: string } & SearchGroupMembers['query']
     ): Promise<{ json: Json<SearchGroupMembersResponse>; params: { groupId: string } & SearchGroupMembers['query'] }> {
-        return request(`groups/${params.groupId}/members/search`, {
-            method: 'GET',
-            params
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.searchGroupMembers(params.groupId, params.query, params)
+            : request(`groups/${params.groupId}/members/search`, { method: 'GET', params });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -790,13 +795,13 @@ const groupReq = {
         json: Json<GetGroupGalleryImagesResponse>;
         params: { groupId: string; galleryId: string } & GetGroupGalleryImages['query'];
     }> {
-        return request(`groups/${params.groupId}/galleries/${params.galleryId}`, {
-            method: 'GET',
-            params: {
-                n: params.n,
-                offset: params.offset
-            }
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getGroupGallery(params.groupId, params.galleryId, params)
+            : request(`groups/${params.groupId}/galleries/${params.galleryId}`, {
+                  method: 'GET',
+                  params: { n: params.n, offset: params.offset }
+              });
+        return source.then((json) => {
             const args = {
                 json,
                 params

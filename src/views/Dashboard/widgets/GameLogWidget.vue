@@ -151,6 +151,8 @@
     import { useFriendStore, useGameLogStore } from '@/stores';
     import { formatDateFilter, openExternalLink } from '@/shared/utils';
     import { watchState } from '@/services/watchState';
+    import { isWebPlatform } from '@/web/platform';
+    import { canBrowseWeb } from '@/web/session';
 
     import { Button } from '@/components/ui/button';
     import {
@@ -192,6 +194,7 @@
 
     const widgetData = shallowRef([]);
     const maxEntries = 200;
+    const canLoadData = computed(() => (isWebPlatform ? canBrowseWeb() : watchState.isLoggedIn));
 
     const activeFilters = computed(() => {
         if (props.config.filters && Array.isArray(props.config.filters) && props.config.filters.length > 0) {
@@ -264,7 +267,7 @@
     );
 
     watch(
-        () => watchState.isLoggedIn,
+        canLoadData,
         (isLoggedIn) => {
             if (isLoggedIn) {
                 loadInitialData();
@@ -276,7 +279,7 @@
     );
 
     onMounted(() => {
-        if (watchState.isLoggedIn) {
+        if (canLoadData.value) {
             loadInitialData();
         }
     });

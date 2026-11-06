@@ -25,7 +25,10 @@ import { useGroupStore } from './group';
 import { useLocationStore } from './location';
 import { useUserStore } from './user';
 import { useDashboardStore } from './dashboard';
+import { recordSyncAttempt, recordSyncFailure, recordSyncSuccess } from '../services/syncTelemetry';
 import { watchState } from '../services/watchState';
+import { runtimeCapabilities } from '../services/runtimeCapabilities';
+import { isWebPlatform, platformCapabilities } from '../web/platform.js';
 
 import configRepository from '../services/config';
 
@@ -33,7 +36,7 @@ import * as workerTimers from 'worker-timers';
 
 export const useFriendStore = defineStore('Friend', () => {
     const appearanceSettingsStore = useAppearanceSettingsStore();
-    const generalSettingsStore = useGeneralSettingsStore();
+    const generalSettingsStore = isWebPlatform ? null : useGeneralSettingsStore();
     const userStore = useUserStore();
     const groupStore = useGroupStore();
     const locationStore = useLocationStore();
@@ -110,7 +113,7 @@ export const useFriendStore = defineStore('Friend', () => {
 
     const allFavoriteFriendIds = computed(() => {
         const favoriteStore = useFavoriteStore();
-        const groups = generalSettingsStore.localFavoriteFriendsGroups;
+        const groups = generalSettingsStore?.localFavoriteFriendsGroups ?? [];
         const set = new Set();
         for (const ref of favoriteStore.cachedFavorites.values()) {
             if (ref.type === 'friend' && (groups.length === 0 || groups.includes(ref.$groupKey))) {
@@ -356,6 +359,9 @@ export const useFriendStore = defineStore('Friend', () => {
             onlineFriendCount.value = 0;
             pendingOfflineMap.clear();
             if (isLoggedIn) {
+                if (isWebPlatform) {
+                    return;
+                }
                 runInitFriendsListFlow(i18n.global.t);
                 pendingOfflineWorkerFunction();
             } else {
@@ -510,7 +516,9 @@ export const useFriendStore = defineStore('Friend', () => {
             ctx.name = ref.name;
         }
         friends.set(id, ctx);
-        watchState.isLoggedIn = true;
+        if (!isWebPlatform) {
+            watchState.isLoggedIn = true;
+        }
         // Startup fill flow:
         //
         // login
@@ -540,6 +548,7 @@ export const useFriendStore = defineStore('Friend', () => {
      */
     async function refreshFriends() {
         isRefreshFriendsLoading.value = true;
+        recordSyncAttempt();
         try {
             const onlineFriends = await bulkRefreshFriends({
                 offline: false
@@ -553,9 +562,11 @@ export const useFriendStore = defineStore('Friend', () => {
                 friends = await refreshRemainingFriends(friends);
             }
 
+            recordSyncSuccess();
             isRefreshFriendsLoading.value = false;
             return friends;
         } catch (err) {
+            recordSyncFailure(err);
             isRefreshFriendsLoading.value = false;
             throw err;
         }
@@ -712,12 +723,15 @@ export const useFriendStore = defineStore('Friend', () => {
     function updateOnlineFriendCounter(forceUpdate = false) {
         const onlineFriendCounts = vipFriends.value.length + onlineFriends.value.length;
         if (onlineFriendCounts !== onlineFriendCount.value || forceUpdate) {
-            AppApi.ExecuteVrOverlayFunction('updateOnlineFriendCount', `${onlineFriendCounts}`);
+            if (!isWebPlatform && runtimeCapabilities.vrOverlay) {
+                AppApi.ExecuteVrOverlayFunction('updateOnlineFriendCount', String(onlineFriendCounts));
+            }
             onlineFriendCount.value = onlineFriendCounts;
         }
     }
 
     async function getAllUserStats() {
+        if (!platformCapabilities.userHistoryStats) return;
         let ref;
         let item;
         const userIds = [];
@@ -811,6 +825,7 @@ export const useFriendStore = defineStore('Friend', () => {
     }
 
     async function getAllUserMutualCount() {
+        if (!platformCapabilities.mutualConnections) return;
         if (!friends.size) {
             return;
         }
@@ -836,6 +851,7 @@ export const useFriendStore = defineStore('Friend', () => {
     }
 
     async function getAllUserMutualOptedOut() {
+        if (!platformCapabilities.mutualConnections) return;
         if (!friends.size) {
             return;
         }

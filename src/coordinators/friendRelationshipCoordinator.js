@@ -13,6 +13,7 @@ import { useUiStore } from '../stores/ui';
 import { useUserStore } from '../stores/user';
 import { removeFriendSearchIndex, syncFriendSearchIndex } from './searchIndexCoordinator';
 import { watchState } from '../services/watchState';
+import { platformCapabilities } from '../web/platform.js';
 
 import configRepository from '../services/config';
 import { storeToRefs } from 'pinia';
@@ -94,6 +95,8 @@ function deleteFriendRequest(userId) {
  * @param {string} id
  */
 export function addFriendship(id) {
+    if (!platformCapabilities.vrchatMutations) return;
+
     const friendStore = useFriendStore();
     const userStore = useUserStore();
     const notificationStore = useNotificationStore();
@@ -171,6 +174,8 @@ export function addFriendship(id) {
  * @param {object} ref
  */
 export function updateFriendship(ref) {
+    if (!platformCapabilities.vrchatMutations) return;
+
     const friendStore = useFriendStore();
     const notificationStore = useNotificationStore();
     const sharedFeedStore = useSharedFeedStore();
@@ -333,6 +338,8 @@ export function updateUserCurrentStatus(ref) {
  * @param {function} [options.nowIso] ISO timestamp provider.
  */
 export function runDeleteFriendshipFlow(id, { nowIso = () => new Date().toJSON() } = {}) {
+    if (!platformCapabilities.vrchatMutations) return;
+
     const friendStore = useFriendStore();
     const userStore = useUserStore();
     const notificationStore = useNotificationStore();
@@ -389,6 +396,8 @@ export function runDeleteFriendshipFlow(id, { nowIso = () => new Date().toJSON()
  * @param {function} [options.nowIso] ISO timestamp provider.
  */
 export function runUpdateFriendshipsFlow(ref, { nowIso = () => new Date().toJSON() } = {}) {
+    if (!platformCapabilities.vrchatMutations) return;
+
     const friendStore = useFriendStore();
     const userStore = useUserStore();
     const { friendLog } = friendStore;

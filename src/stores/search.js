@@ -13,6 +13,8 @@ import { applyUser, showUserDialog } from '../coordinators/userCoordinator';
 import { useModalStore } from './modal';
 import { useUserStore } from './user';
 import { watchState } from '../services/watchState';
+import { isWebPlatform } from '../web/platform';
+import { searchWebEntities } from '../web/entities';
 
 export const useSearchStore = defineStore('Search', () => {
     const userStore = useUserStore();
@@ -71,26 +73,38 @@ export const useSearchStore = defineStore('Search', () => {
                 params.offset = 0;
             }
         }
-        await userRequest.getUsers(params).then((args) => {
-            for (const json of args.json) {
-                if (!json.displayName) {
-                    console.error('getUsers gave us garbage', json);
-                    continue;
-                }
-                // @ts-ignore
-                applyUser(json);
+        const json = isWebPlatform
+            ? (
+                  await searchWebEntities(
+                      'user',
+                      params.search,
+                      { offset: params.offset, limit: params.n },
+                      {
+                          fuzzy: params.fuzzy,
+                          sort: params.sort,
+                          order: params.order,
+                          customFields: params.customFields
+                      }
+                  )
+              ).items
+            : (await userRequest.getUsers(params)).json;
+        for (const item of json) {
+            if (!item.displayName) {
+                console.error('getUsers gave us garbage', item);
+                continue;
             }
+            // @ts-ignore
+            applyUser(item);
+        }
 
-            const map = new Map();
-            for (const json of args.json) {
-                const ref = userStore.cachedUsers.get(json.id);
-                if (typeof ref !== 'undefined') {
-                    map.set(ref.id, ref);
-                }
+        const map = new Map();
+        for (const item of json) {
+            const ref = userStore.cachedUsers.get(item.id);
+            if (typeof ref !== 'undefined') {
+                map.set(ref.id, ref);
             }
-            searchUserResults.value = Array.from(map.values());
-            return args;
-        });
+        }
+        searchUserResults.value = Array.from(map.values());
     }
 
     async function directAccessPaste() {

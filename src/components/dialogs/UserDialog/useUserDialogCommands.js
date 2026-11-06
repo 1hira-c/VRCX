@@ -10,6 +10,7 @@ import {
 import { copyToClipboard, parseLocation } from '../../../shared/utils';
 import { database } from '../../../services/database';
 import { recordRecentAction } from '../../../composables/useRecentActions';
+import { platformCapabilities } from '../../../web/platform';
 
 /**
  * Composable for UserDialog command dispatch.
@@ -164,6 +165,7 @@ export function useUserDialogCommands(
      * @param {number} type
      */
     function setPlayerModeration(userId, type) {
+        if (!platformCapabilities.vrchatMutations) return;
         const D = userDialog.value;
         AppApi.SetVRChatUserModeration(currentUser.value.id, userId, type).then((result) => {
             if (result) {

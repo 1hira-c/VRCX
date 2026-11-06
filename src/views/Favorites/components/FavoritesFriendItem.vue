@@ -38,7 +38,7 @@
                         </template>
                     </ItemDescription>
                 </ItemContent>
-                <ItemActions v-if="editMode" @click.stop>
+                <ItemActions v-if="editMode && platformCapabilities.vrchatMutations" @click.stop>
                     <Checkbox v-model="isSelected" />
                 </ItemActions>
                 <DropdownMenu v-else>
@@ -56,35 +56,40 @@
                         <DropdownMenuItem @click="handleOpenProfile">
                             {{ t('common.actions.view_details') }}
                         </DropdownMenuItem>
-                        <DropdownMenuItem v-if="favorite.ref.state === 'online'" @click="friendRequestInvite">
-                            {{ t('dialog.user.actions.request_invite') }}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem v-if="isGameRunning" :disabled="!canInviteToMyLocation" @click="friendInvite">
-                            {{ t('dialog.user.actions.invite') }}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem :disabled="!currentUser?.isBoopingEnabled" @click="friendSendBoop">
-                            {{ t('dialog.user.actions.send_boop') }}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator v-if="favorite.ref.state === 'online' && hasFriendLocation" />
-                        <DropdownMenuItem
-                            v-if="favorite.ref.state === 'online' && hasFriendLocation"
-                            :disabled="!canJoinFriend"
-                            @click="friendJoin">
-                            {{ t('dialog.user.info.launch_invite_tooltip') }}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            v-if="favorite.ref.state === 'online' && hasFriendLocation"
-                            :disabled="!canJoinFriend"
-                            @click="friendInviteSelf">
-                            {{ t('dialog.user.info.self_invite_tooltip') }}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem @click="showFavoriteDialog('friend', favorite.id)">
-                            {{ t('view.favorite.edit_favorite_tooltip') }}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem variant="destructive" @click="handleDeleteFavorite">
-                            {{ deleteMenuLabel }}
-                        </DropdownMenuItem>
+                        <template v-if="platformCapabilities.vrchatMutations">
+                            <DropdownMenuItem v-if="favorite.ref.state === 'online'" @click="friendRequestInvite">
+                                {{ t('dialog.user.actions.request_invite') }}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                v-if="isGameRunning"
+                                :disabled="!canInviteToMyLocation"
+                                @click="friendInvite">
+                                {{ t('dialog.user.actions.invite') }}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem :disabled="!currentUser?.isBoopingEnabled" @click="friendSendBoop">
+                                {{ t('dialog.user.actions.send_boop') }}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator v-if="favorite.ref.state === 'online' && hasFriendLocation" />
+                            <DropdownMenuItem
+                                v-if="favorite.ref.state === 'online' && hasFriendLocation"
+                                :disabled="!canJoinFriend"
+                                @click="friendJoin">
+                                {{ t('dialog.user.info.launch_invite_tooltip') }}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                v-if="favorite.ref.state === 'online' && hasFriendLocation"
+                                :disabled="!canJoinFriend"
+                                @click="friendInviteSelf">
+                                {{ t('dialog.user.info.self_invite_tooltip') }}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem @click="showFavoriteDialog('friend', favorite.id)">
+                                {{ t('view.favorite.edit_favorite_tooltip') }}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem variant="destructive" @click="handleDeleteFavorite">
+                                {{ deleteMenuLabel }}
+                            </DropdownMenuItem>
+                        </template>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </Item>
@@ -103,7 +108,7 @@
                 <ItemTitle class="truncate max-w-full">{{ favorite.name || favorite.id }}</ItemTitle>
                 <ItemDescription class="truncate line-clamp-1">{{ favorite.id }}</ItemDescription>
             </ItemContent>
-            <ItemActions>
+            <ItemActions v-if="platformCapabilities.vrchatMutations">
                 <Button
                     class="rounded-full h-6 w-6"
                     size="icon-sm"
@@ -146,6 +151,7 @@
     import Location from '../../../components/Location.vue';
     import UserContextMenu from '../../../components/UserContextMenu.vue';
     import IconFrame from '../../../components/IconFrame.vue';
+    import { platformCapabilities } from '../../../web/platform';
 
     const { userImage } = useUserDisplay();
     const props = defineProps({

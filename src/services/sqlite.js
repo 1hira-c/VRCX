@@ -1,6 +1,7 @@
 import { i18n } from '../plugins/i18n';
 import { openExternalLink } from '../shared/utils';
 import { useModalStore } from '../stores';
+import { isWebPlatform } from '../web/platform.js';
 
 // requires binding of SQLite
 class SQLiteService {
@@ -87,9 +88,22 @@ class SQLiteService {
             this.handleSQLiteError(e);
         }
     }
+
+    async executeTransaction(operations) {
+        if (!LINUX) {
+            throw new Error('Transactional projection batches are only supported by the Electron host');
+        }
+        try {
+            return await SQLite.ExecuteTransactionJson(JSON.stringify(operations));
+        } catch (e) {
+            this.handleSQLiteError(e);
+        }
+    }
 }
 
 var self = new SQLiteService();
-window.sqliteService = self;
+if (!isWebPlatform) {
+    window.sqliteService = self;
+}
 
 export { self as default, SQLiteService };

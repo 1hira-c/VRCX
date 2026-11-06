@@ -7,12 +7,14 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NLog;
 using SixLabors.ImageSharp;
+using VRCX.Transport;
 using Cookie = System.Net.Cookie;
 using Timer = System.Threading.Timer;
 
@@ -38,6 +40,7 @@ namespace VRCX
 
         private HttpClient _httpClient;
         private SocketsHttpHandler _httpHandler;
+        private ServerCookieProtector _serverCookieProtector;
 
         static WebApi()
         {
@@ -63,12 +66,21 @@ namespace VRCX
             }
             catch (Exception e)
             {
-                Logger.Error($"Failed to save cookies: {e.Message}");
+                if (StartupArgs.LaunchArguments.IsServerMode)
+                    Logger.Error("Failed to save the encrypted cookie snapshot.");
+                else
+                    Logger.Error($"Failed to save cookies: {e.Message}");
             }
         }
 
         public void Init()
         {
+            if (StartupArgs.LaunchArguments.IsServerMode)
+            {
+                var keyFile = Environment.GetEnvironmentVariable("VRCX_WEB_SECRET_KEY_FILE");
+                _serverCookieProtector = ServerCookieProtector.FromBase64File(
+                    string.IsNullOrWhiteSpace(keyFile) ? "/run/secrets/vrcx_secret_key" : keyFile);
+            }
             SetProxy();
             InitializeHttpClient();
             LoadCookies();
@@ -134,6 +146,7 @@ namespace VRCX
         {
             _timer.Change(-1, -1);
             SaveCookies();
+            _serverCookieProtector?.Dispose();
         }
 
         public void ClearCookies()
@@ -160,14 +173,35 @@ namespace VRCX
             try
             {
                 var item = values[0];
-                using var stream = new MemoryStream(Convert.FromBase64String((string)item[0]));
-                CookieContainer = new CookieContainer();
-                CookieContainer.Add(System.Text.Json.JsonSerializer.Deserialize<CookieCollection>(stream));
-                InitializeHttpClient();
+                var storedValue = (string)item[0];
+                if (StartupArgs.LaunchArguments.IsServerMode &&
+                    !ServerCookieProtector.IsProtectedEnvelope(storedValue))
+                {
+                    Logger.Warn("Ignoring an unencrypted cookie snapshot in server mode.");
+                    return;
+                }
+
+                var serialized = StartupArgs.LaunchArguments.IsServerMode
+                    ? _serverCookieProtector.Unprotect(storedValue)
+                    : Convert.FromBase64String(storedValue);
+                try
+                {
+                    using var stream = new MemoryStream(serialized, writable: false);
+                    CookieContainer = new CookieContainer();
+                    CookieContainer.Add(System.Text.Json.JsonSerializer.Deserialize<CookieCollection>(stream));
+                    InitializeHttpClient();
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(serialized);
+                }
             }
             catch (Exception e)
             {
-                Logger.Error($"Failed to load cookies: {e.Message}");
+                if (StartupArgs.LaunchArguments.IsServerMode)
+                    Logger.Error("Failed to load the encrypted cookie snapshot.");
+                else
+                    Logger.Error($"Failed to load cookies: {e.Message}");
             }
         }
 
@@ -220,20 +254,36 @@ namespace VRCX
                 var cookies = GetAllCookies();
                 using var memoryStream = new MemoryStream();
                 System.Text.Json.JsonSerializer.Serialize(memoryStream, cookies);
-                SQLite.Instance.ExecuteNonQuery(
-                    "INSERT OR REPLACE INTO `cookies` (`key`, `value`) VALUES (@key, @value)",
-                    new Dictionary<string, object>()
-                    {
-                        { "@key", "default" },
-                        { "@value", Convert.ToBase64String(memoryStream.ToArray()) }
-                    }
-                );
+                var serialized = memoryStream.ToArray();
+                try
+                {
+                    var value = StartupArgs.LaunchArguments.IsServerMode
+                        ? _serverCookieProtector.Protect(serialized)
+                        : Convert.ToBase64String(serialized);
+                    SQLite.Instance.ExecuteNonQuery(
+                        "INSERT OR REPLACE INTO `cookies` (`key`, `value`) VALUES (@key, @value)",
+                        new Dictionary<string, object>()
+                        {
+                            { "@key", "default" },
+                            { "@value", value }
+                        }
+                    );
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(serialized);
+                    if (memoryStream.TryGetBuffer(out var buffer))
+                        CryptographicOperations.ZeroMemory(buffer.AsSpan(0, (int)memoryStream.Length));
+                }
 
                 _cookieDirty = false;
             }
             catch (Exception e)
             {
-                Logger.Error($"Failed to save cookies: {e.Message}");
+                if (StartupArgs.LaunchArguments.IsServerMode)
+                    Logger.Error("Failed to save the encrypted cookie snapshot.");
+                else
+                    Logger.Error($"Failed to save cookies: {e.Message}");
             }
         }
 
@@ -256,7 +306,10 @@ namespace VRCX
             }
             catch (Exception e)
             {
-                Logger.Error($"Failed to set cookies: {e.Message}");
+                if (StartupArgs.LaunchArguments.IsServerMode)
+                    Logger.Error("Failed to set the server cookie snapshot.");
+                else
+                    Logger.Error($"Failed to set cookies: {e.Message}");
             }
 
             _cookieDirty = true; // force cookies to be saved for lastUserLoggedIn

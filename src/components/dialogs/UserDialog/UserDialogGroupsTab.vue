@@ -14,12 +14,12 @@
                 <span class="ml-1.5 text-sm">{{
                     t('dialog.user.groups.total_count', { count: userDialog.userGroups.groups.length })
                 }}</span>
-                <template v-if="userDialogGroupEditMode">
+                <template v-if="canEditCurrentUserGroups && userDialogGroupEditMode">
                     <span class="text-[10px] ml-2">{{ t('dialog.user.groups.hold_shift') }}</span>
                 </template>
             </div>
             <div style="display: flex; align-items: center">
-                <template v-if="!userDialogGroupEditMode">
+                <template v-if="!canEditCurrentUserGroups || !userDialogGroupEditMode">
                     <Input
                         v-model="groupSearchQuery"
                         class="h-8 w-40 mr-2"
@@ -39,7 +39,8 @@
                                 :key="String(key)"
                                 :value="String(key)"
                                 :disabled="
-                                    item === userDialogGroupSortingOptions.inGame && userDialog.id !== currentUser.id
+                                    item === userDialogGroupSortingOptions.inGame &&
+                                    (userDialog.id !== currentUser.id || !platformCapabilities.desktopIntegration)
                                 ">
                                 {{ t(item.name) }}
                             </SelectItem>
@@ -49,14 +50,14 @@
                 <Button
                     variant="outline"
                     size="sm"
-                    v-if="userDialogGroupEditMode"
+                    v-if="canEditCurrentUserGroups && userDialogGroupEditMode"
                     @click="exitEditModeCurrentUserGroups">
                     {{ t('dialog.user.groups.exit_edit_mode') }}
                 </Button>
                 <Button
                     size="sm"
                     variant="outline"
-                    v-else-if="currentUser.id === userDialog.id"
+                    v-else-if="canEditCurrentUserGroups"
                     class="ml-2"
                     @click="editModeCurrentUserGroups">
                     {{ t('dialog.user.groups.edit_mode') }}
@@ -65,7 +66,7 @@
         </div>
         <div class="min-h-0 flex-1 overflow-auto">
             <div style="margin-top: 8px">
-                <template v-if="userDialogGroupEditMode">
+                <template v-if="canEditCurrentUserGroups && userDialogGroupEditMode">
                     <div
                         class="flex flex-wrap items-start"
                         style="margin-top: 8px; margin-bottom: 16px; max-height: unset">
@@ -301,7 +302,7 @@
                             v-for="group in allFilteredGroups"
                             :key="group.id"
                             :group="group"
-                            :can-manage="currentUser.id === userDialog.id" />
+                            :can-manage="platformCapabilities.vrchatMutations && currentUser.id === userDialog.id" />
                     </div>
                 </template>
                 <template v-else>
@@ -317,7 +318,7 @@
                         >
 
                         <TooltipWrapper
-                            v-if="currentUser.id === userDialog.id"
+                            v-if="platformCapabilities.vrchatMutations && currentUser.id === userDialog.id"
                             :content="createGroupTooltip"
                             side="top">
                             <span class="ml-2">
@@ -337,7 +338,7 @@
                             v-for="group in userDialog.userGroups.ownGroups"
                             :key="group.id"
                             :group="group"
-                            :can-manage="currentUser.id === userDialog.id" />
+                            :can-manage="platformCapabilities.vrchatMutations && currentUser.id === userDialog.id" />
                     </div>
                     <template v-if="userDialog.userGroups.mutualGroups.length > 0">
                         <span class="text-base font-bold">{{ t('dialog.user.groups.mutual_groups') }}</span>
@@ -347,7 +348,9 @@
                                 v-for="group in userDialog.userGroups.mutualGroups"
                                 :key="group.id"
                                 :group="group"
-                                :can-manage="currentUser.id === userDialog.id" />
+                                :can-manage="
+                                    platformCapabilities.vrchatMutations && currentUser.id === userDialog.id
+                                " />
                         </div>
                     </template>
                     <template v-if="userDialog.userGroups.remainingGroups.length > 0">
@@ -369,7 +372,9 @@
                                 v-for="group in userDialog.userGroups.remainingGroups"
                                 :key="group.id"
                                 :group="group"
-                                :can-manage="currentUser.id === userDialog.id" />
+                                :can-manage="
+                                    platformCapabilities.vrchatMutations && currentUser.id === userDialog.id
+                                " />
                         </div>
                     </template>
                 </template>
@@ -421,6 +426,7 @@
     import { useOptionKeySelect } from '../../../composables/useOptionKeySelect';
     import { userDialogGroupSortingOptions } from '../../../shared/constants';
     import { moveGroupInOrder, normalizeGroupOrder } from '../../../shared/utils/groupOrder';
+    import { platformCapabilities } from '../../../web/platform';
 
     const { t } = useI18n();
 
@@ -444,6 +450,12 @@
 
     const groupSearchQuery = ref('');
     const groupSearchActive = computed(() => groupSearchQuery.value.trim().length > 0);
+    const canEditCurrentUserGroups = computed(
+        () =>
+            platformCapabilities.vrchatMutations &&
+            platformCapabilities.desktopIntegration &&
+            currentUser.value.id === userDialog.value.id
+    );
     const maxOwnedGroups = computed(() => Number(cachedConfig.value?.constants?.GROUPS?.MAX_OWNED ?? 5));
     const isOwnedGroupLimitReached = computed(
         () => userDialog.value.userGroups.ownGroups.length >= maxOwnedGroups.value
@@ -542,7 +554,7 @@
                 userDialog.value.userGroups.remainingGroups.unshift(group);
             }
         }
-        if (userId === currentUser.value.id) {
+        if (userId === currentUser.value.id && platformCapabilities.desktopIntegration) {
             userDialog.value.groupSorting = userDialogGroupSortingOptions.inGame;
         } else if (userDialog.value.groupSorting.value === userDialogGroupSortingOptions.inGame.value) {
             userDialog.value.groupSorting = userDialogGroupSortingOptions.alphabetical;
@@ -583,8 +595,13 @@
                 sortMethod = compareByMemberCount;
                 break;
             case 'inGame':
-                sortMethod = sortGroupsByInGame;
-                await updateInGameGroupOrder();
+                if (platformCapabilities.desktopIntegration) {
+                    sortMethod = sortGroupsByInGame;
+                    await updateInGameGroupOrder();
+                } else {
+                    D.groupSorting = userDialogGroupSortingOptions.alphabetical;
+                    sortMethod = compareByName;
+                }
                 break;
         }
 
@@ -602,6 +619,7 @@
     }
 
     async function editModeCurrentUserGroups() {
+        if (!canEditCurrentUserGroups.value) return;
         await updateInGameGroupOrder();
         userDialogGroupEditGroups.value = Array.from(currentUserGroups.value.values());
         inGameGroupOrder.value = normalizeGroupOrder(
@@ -613,6 +631,7 @@
     }
 
     async function saveInGameGroupOrder() {
+        if (!canEditCurrentUserGroups.value) return;
         userDialogGroupEditGroups.value.sort(sortGroupsByInGame);
         try {
             await AppApi.SetVRChatRegistryKey(
@@ -628,6 +647,7 @@
 
     // Select all groups currently in the editable list by collecting their IDs
     function selectAllGroups() {
+        if (!canEditCurrentUserGroups.value) return;
         const allSelected = userDialogGroupEditSelectedGroupIds.value.length === userDialogGroupEditGroups.value.length;
 
         // First update selection state
@@ -647,6 +667,7 @@
      * @param value
      */
     function handleBulkGroupAction(value) {
+        if (!canEditCurrentUserGroups.value) return;
         bulkGroupActionValue.value = value;
 
         if (value === 'leave') {
@@ -666,6 +687,7 @@
      * @param newVisibility
      */
     async function bulkSetVisibility(newVisibility) {
+        if (!platformCapabilities.vrchatMutations) return;
         for (const groupId of userDialogGroupEditSelectedGroupIds.value) {
             setGroupVisibility(groupId, newVisibility);
         }
@@ -673,6 +695,7 @@
 
     // Leave (remove user from) all selected groups
     function bulkLeaveGroups() {
+        if (!platformCapabilities.vrchatMutations) return;
         for (const groupId of userDialogGroupEditSelectedGroupIds.value) {
             leaveGroup(groupId);
         }
@@ -683,6 +706,7 @@
      * @param groupId
      */
     function toggleGroupSelection(groupId) {
+        if (!canEditCurrentUserGroups.value) return;
         const index = userDialogGroupEditSelectedGroupIds.value.indexOf(groupId);
         if (index === -1) {
             userDialogGroupEditSelectedGroupIds.value.push(groupId);
@@ -695,6 +719,7 @@
      * @param groupId
      */
     function moveGroupUp(groupId) {
+        if (!canEditCurrentUserGroups.value) return;
         const index = inGameGroupOrder.value.indexOf(groupId);
         if (moveGroupInOrder(inGameGroupOrder.value, groupId, index - 1)) {
             saveInGameGroupOrder();
@@ -705,6 +730,7 @@
      * @param groupId
      */
     function moveGroupDown(groupId) {
+        if (!canEditCurrentUserGroups.value) return;
         const index = inGameGroupOrder.value.indexOf(groupId);
         if (moveGroupInOrder(inGameGroupOrder.value, groupId, index + 1)) {
             saveInGameGroupOrder();
@@ -715,6 +741,7 @@
      * @param groupId
      */
     function moveGroupTop(groupId) {
+        if (!canEditCurrentUserGroups.value) return;
         if (moveGroupInOrder(inGameGroupOrder.value, groupId, 0)) {
             saveInGameGroupOrder();
         }
@@ -724,6 +751,7 @@
      * @param groupId
      */
     function moveGroupBottom(groupId) {
+        if (!canEditCurrentUserGroups.value) return;
         if (moveGroupInOrder(inGameGroupOrder.value, groupId, inGameGroupOrder.value.length - 1)) {
             saveInGameGroupOrder();
         }

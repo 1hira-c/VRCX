@@ -1,7 +1,7 @@
 <template>
     <div class="x-container flex h-full min-h-0 flex-col gap-3 py-3">
         <DashboardEditToolbar
-            v-if="isEditing"
+            v-if="isEditing && !isReadOnlyWeb"
             v-model:name="editName"
             @save="handleSave"
             @cancel="handleCancelEdit"
@@ -23,7 +23,7 @@
                 </ResizablePanelGroup>
             </template>
 
-            <template v-else-if="isEditing">
+            <template v-else-if="isEditing && !isReadOnlyWeb">
                 <DashboardRow
                     v-for="(row, rowIndex) in displayRows"
                     :key="rowIndex"
@@ -75,7 +75,9 @@
                 class="flex flex-1 items-center justify-center rounded-md border border-dashed text-muted-foreground">
                 <div class="flex flex-col items-center gap-3">
                     <p>{{ t('dashboard.empty') }}</p>
-                    <Button @click="isEditing = true">{{ t('dashboard.actions.start_editing') }}</Button>
+                    <Button v-if="!isReadOnlyWeb" @click="isEditing = true">
+                        {{ t('dashboard.actions.start_editing') }}
+                    </Button>
                 </div>
             </div>
         </div>
@@ -92,6 +94,7 @@
     import { Button } from '@/components/ui/button';
     import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
     import { useDashboardStore, useModalStore } from '@/stores';
+    import { isReadOnlyWeb } from '@/web/platform';
 
     import DashboardEditToolbar from './components/DashboardEditToolbar.vue';
     import DashboardRow from './components/DashboardRow.vue';
@@ -151,6 +154,10 @@
         () => dashboardStore.editingDashboardId,
         (editingId) => {
             if (editingId === props.id) {
+                if (isReadOnlyWeb) {
+                    dashboardStore.clearEditingDashboardId();
+                    return;
+                }
                 isEditing.value = true;
                 dashboardStore.clearEditingDashboardId();
             }
@@ -159,16 +166,19 @@
     );
 
     const handleAddRowAreaClick = () => {
+        if (isReadOnlyWeb) return;
         showAddRowOptions.value = !showAddRowOptions.value;
     };
 
     const handleAddRow = (panelCount, direction = 'horizontal') => {
+        if (isReadOnlyWeb) return;
         const panels = Array(panelCount).fill(null);
         editRows.value.push({ panels, direction });
         showAddRowOptions.value = false;
     };
 
     const handleRemovePanel = (rowIndex, panelIndex) => {
+        if (isReadOnlyWeb) return;
         const row = editRows.value[rowIndex];
         if (!row) return;
         if (row.panels.length <= 1) {
@@ -179,6 +189,7 @@
     };
 
     const handleUpdatePanel = (rowIndex, panelIndex, panelValue) => {
+        if (isReadOnlyWeb) return;
         if (!editRows.value[rowIndex]?.panels) {
             return;
         }
@@ -186,6 +197,7 @@
     };
 
     const handleLiveUpdatePanel = async (rowIndex, panelIndex, panelValue) => {
+        if (isReadOnlyWeb) return;
         if (!dashboard.value?.rows?.[rowIndex]?.panels) return;
         const rows = JSON.parse(JSON.stringify(dashboard.value.rows));
         rows[rowIndex].panels[panelIndex] = panelValue;
@@ -193,6 +205,7 @@
     };
 
     const handleSave = async () => {
+        if (isReadOnlyWeb) return;
         const isFirstSave =
             dashboardStore.dashboards.length === 1 && (!dashboard.value?.rows || dashboard.value.rows.length === 0);
 
@@ -212,6 +225,7 @@
     };
 
     const handleDelete = async () => {
+        if (isReadOnlyWeb) return;
         const { ok } = await modalStore.confirm({
             title: t('dashboard.confirmations.delete_title'),
             description: t('dashboard.confirmations.delete_description'),

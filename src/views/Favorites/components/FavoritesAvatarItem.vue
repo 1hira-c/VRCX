@@ -34,7 +34,9 @@
                             {{ localFavFakeRef.authorName }}
                         </ItemDescription>
                     </ItemContent>
-                    <ItemActions v-if="editMode && !isLocalFavorite" @click.stop>
+                    <ItemActions
+                        v-if="editMode && !isLocalFavorite && platformCapabilities.vrchatMutations"
+                        @click.stop>
                         <Checkbox v-model="isSelected" />
                     </ItemActions>
                     <ItemActions v-else-if="!editMode">
@@ -53,19 +55,21 @@
                                 <DropdownMenuItem @click="handleViewDetails">
                                     {{ t('common.actions.view_details') }}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem
-                                    v-if="canSelectAvatar"
-                                    :disabled="currentUser.currentAvatar === favorite.id"
-                                    @click="selectAvatarWithConfirmation(favorite.id)">
-                                    {{ t('view.favorite.select_avatar_tooltip') }}
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator v-if="canSelectAvatar" />
-                                <DropdownMenuItem @click="showFavoriteDialog('avatar', favorite.id)">
-                                    {{ t('view.favorite.edit_favorite_tooltip') }}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem variant="destructive" @click="handleDeleteFavorite">
-                                    {{ deleteMenuLabel }}
-                                </DropdownMenuItem>
+                                <template v-if="platformCapabilities.vrchatMutations">
+                                    <DropdownMenuItem
+                                        v-if="canSelectAvatar"
+                                        :disabled="currentUser.currentAvatar === favorite.id"
+                                        @click="selectAvatarWithConfirmation(favorite.id)">
+                                        {{ t('view.favorite.select_avatar_tooltip') }}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator v-if="canSelectAvatar" />
+                                    <DropdownMenuItem @click="showFavoriteDialog('avatar', favorite.id)">
+                                        {{ t('view.favorite.edit_favorite_tooltip') }}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem variant="destructive" @click="handleDeleteFavorite">
+                                        {{ deleteMenuLabel }}
+                                    </DropdownMenuItem>
+                                </template>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </ItemActions>
@@ -73,19 +77,21 @@
             </ContextMenuTrigger>
             <ContextMenuContent>
                 <ContextMenuItem @click="handleViewDetails">{{ t('common.actions.view_details') }}</ContextMenuItem>
-                <ContextMenuItem
-                    v-if="canSelectAvatar"
-                    :disabled="currentUser.currentAvatar === favorite.id"
-                    @click="selectAvatarWithConfirmation(favorite.id)">
-                    {{ t('view.favorite.select_avatar_tooltip') }}
-                </ContextMenuItem>
-                <ContextMenuSeparator v-if="canSelectAvatar" />
-                <ContextMenuItem @click="showFavoriteDialog('avatar', favorite.id)">
-                    {{ t('view.favorite.edit_favorite_tooltip') }}
-                </ContextMenuItem>
-                <ContextMenuItem variant="destructive" @click="handleDeleteFavorite">
-                    {{ deleteMenuLabel }}
-                </ContextMenuItem>
+                <template v-if="platformCapabilities.vrchatMutations">
+                    <ContextMenuItem
+                        v-if="canSelectAvatar"
+                        :disabled="currentUser.currentAvatar === favorite.id"
+                        @click="selectAvatarWithConfirmation(favorite.id)">
+                        {{ t('view.favorite.select_avatar_tooltip') }}
+                    </ContextMenuItem>
+                    <ContextMenuSeparator v-if="canSelectAvatar" />
+                    <ContextMenuItem @click="showFavoriteDialog('avatar', favorite.id)">
+                        {{ t('view.favorite.edit_favorite_tooltip') }}
+                    </ContextMenuItem>
+                    <ContextMenuItem variant="destructive" @click="handleDeleteFavorite">
+                        {{ deleteMenuLabel }}
+                    </ContextMenuItem>
+                </template>
             </ContextMenuContent>
         </ContextMenu>
     </template>
@@ -95,7 +101,7 @@
             <ItemContent class="min-w-0">
                 <ItemTitle class="truncate max-w-full">{{ favorite.name || favorite.id }}</ItemTitle>
             </ItemContent>
-            <ItemActions>
+            <ItemActions v-if="platformCapabilities.vrchatMutations">
                 <Button class="rounded-full h-6 w-6" size="icon-sm" variant="ghost" @click.stop="handleDeleteFavorite">
                     <Trash2 class="h-4 w-4" />
                 </Button>
@@ -132,6 +138,7 @@
     import { selectAvatarWithConfirmation, showAvatarDialog } from '../../../coordinators/avatarCoordinator';
     import { removeLocalAvatarFavorite } from '../../../coordinators/favoriteCoordinator';
     import { useFavoriteStore, useUserStore } from '../../../stores';
+    import { platformCapabilities } from '../../../web/platform';
 
     const props = defineProps({
         favorite: Object,

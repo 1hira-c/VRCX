@@ -86,13 +86,15 @@
                             :step="cardSpacingSlider.step"
                             @update:modelValue="$emit('update:cardSpacingValue', $event)" />
                     </li>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem @click="$emit('import')">
-                        {{ t('view.favorite.import') }}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem @click="$emit('export')">
-                        {{ t('view.favorite.export') }}
-                    </DropdownMenuItem>
+                    <template v-if="!isReadOnlyWeb">
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem @click="$emit('import')">
+                            {{ t('view.favorite.import') }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem @click="$emit('export')">
+                            {{ t('view.favorite.export') }}
+                        </DropdownMenuItem>
+                    </template>
                 </DropdownMenuContent>
             </DropdownMenu>
         </div>
@@ -114,6 +116,7 @@
     import { InputGroupSearch } from '@/components/ui/input-group';
     import { Slider } from '@/components/ui/slider';
     import { useI18n } from 'vue-i18n';
+    import { isReadOnlyWeb } from '../../../web/platform';
 
     defineProps({
         sortValue: { type: String, default: 'name' },

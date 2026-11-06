@@ -1,6 +1,6 @@
 <template>
     <Sidebar side="left" variant="sidebar" collapsible="icon">
-        <SidebarHeader v-if="showNewDashboardButton" class="px-2 py-2">
+        <SidebarHeader v-if="showNewDashboardButton && !isReadOnlyWeb" class="px-2 py-2">
             <SidebarMenu>
                 <SidebarMenuItem>
                     <SidebarMenuButton
@@ -22,7 +22,7 @@
                     <SidebarGroup>
                         <SidebarGroupContent>
                             <SidebarMenu v-if="navLayoutReady">
-                                <template v-for="item in menuItems" :key="item.index">
+                                <template v-for="item in visibleMenuItems" :key="item.index">
                                     <SidebarMenuItem v-if="!item.children?.length">
                                         <ContextMenu>
                                             <ContextMenuTrigger as-child>
@@ -50,7 +50,7 @@
                                                     </span>
                                                 </SidebarMenuButton>
                                             </ContextMenuTrigger>
-                                            <ContextMenuContent>
+                                            <ContextMenuContent v-if="!isReadOnlyWeb">
                                                 <ContextMenuItem v-if="hasNotifications" @click="clearAllNotifications">
                                                     {{ t('nav_menu.mark_all_read') }}
                                                 </ContextMenuItem>
@@ -90,6 +90,7 @@
                                         :is-nav-item-notified="isNavItemNotified"
                                         :is-dashboard-item="isDashboardItem"
                                         :is-tool-item="isToolItem"
+                                        :read-only="isReadOnlyWeb"
                                         @collapsed-dropdown-open-change="handleCollapsedDropdownOpenChange"
                                         @collapsed-submenu-select="handleCollapsedSubmenuSelect"
                                         @submenu-click="handleSubmenuClick"
@@ -104,7 +105,7 @@
                     </SidebarGroup>
                 </SidebarContent>
             </ContextMenuTrigger>
-            <ContextMenuContent>
+            <ContextMenuContent v-if="!isReadOnlyWeb">
                 <ContextMenuItem v-if="hasNotifications" @click="clearAllNotifications">
                     {{ t('nav_menu.mark_all_read') }}
                 </ContextMenuItem>
@@ -142,12 +143,15 @@
             @theme-color-select="handleThemeColorSelect"
             @table-density-select="handleTableDensitySelect"
             @open-custom-nav="handleOpenCustomNavDialog"
+            @vrchat-reauth="handleVrchatReauth"
+            @web-devices="webDevicesDialogOpen = true"
             @logout-click="handleLogoutClick"
             @toggle-nav-collapse="toggleNavCollapse"
             @open-github="openGithub" />
     </Sidebar>
 
     <CustomNavDialog
+        v-if="!isReadOnlyWeb"
         v-model:visible="customNavDialogVisible"
         :layout="navLayout"
         :hidden-keys="navHiddenKeys"
@@ -156,6 +160,8 @@
         :definitions="allNavDefinitions"
         @save="handleCustomNavSave"
         @dashboard-created="handleDashboardCreated" />
+
+    <WebDeviceManagementDialog v-if="isWebPlatform" v-model:open="webDevicesDialogOpen" />
 </template>
 
 <script setup>
@@ -186,7 +192,8 @@
         SidebarHeader,
         SidebarMenu,
         SidebarMenuButton,
-        SidebarMenuItem
+        SidebarMenuItem,
+        useSidebar
     } from '@/components/ui/sidebar';
 
     import {
@@ -201,14 +208,24 @@
     import { isEntryNotified as checkEntryNotified } from './navMenuUtils';
     import { DASHBOARD_NAV_KEY_PREFIX, links } from '../../shared/constants';
     import { openExternalLink } from '../../shared/utils';
+    import { isPlatformViewAvailable, isReadOnlyWeb, isWebPlatform } from '../../web/platform';
+    import { webSession } from '../../web/session';
 
     import NavMenuFolderItem from './NavMenuFolderItem.vue';
     import NavMenuFooter from './NavMenuFooter.vue';
+    import WebDeviceManagementDialog from '../../web/components/WebDeviceManagementDialog.vue';
 
     import CustomNavDialog from '../dialogs/CustomNavDialog.vue';
 
     const { t, locale } = useI18n();
     const router = useRouter();
+    const { setOpenMobile } = useSidebar();
+    if (isWebPlatform) {
+        watch(
+            () => router.currentRoute.value.fullPath,
+            () => setOpenMobile(false)
+        );
+    }
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 
     const VRCXUpdaterStore = useVRCXUpdaterStore();
@@ -280,6 +297,28 @@
 
     const collapsedDropdownOpenId = ref(null);
     const customNavDialogVisible = ref(false);
+    const webDevicesDialogOpen = ref(false);
+
+    const unsupportedWebNavKeys = new Set(['player-list', 'moderation', 'my-avatars', 'tools', 'direct-access']);
+    const isUnsupportedWebNavItem = (item) =>
+        unsupportedWebNavKeys.has(item?.index) ||
+        item?.index?.startsWith('tool-') ||
+        !isPlatformViewAvailable(item?.index);
+    const visibleMenuItems = computed(() => {
+        if (!isWebPlatform) {
+            return menuItems.value;
+        }
+        return menuItems.value.flatMap((item) => {
+            if (isUnsupportedWebNavItem(item)) {
+                return [];
+            }
+            if (!item.children?.length) {
+                return [item];
+            }
+            const children = item.children.filter((child) => !isUnsupportedWebNavItem(child));
+            return children.length ? [{ ...item, children }] : [];
+        });
+    });
 
     const hasNotifications = computed(() => notifiedMenus.value.length > 0);
     const version = computed(() => appVersion.value?.split('VRCX ')?.[1] || '-');
@@ -317,7 +356,34 @@
         router.push({ name: 'settings' });
     };
 
+    const endWebVrchatSession = async (title, description) => {
+        const redirect = router.currentRoute.value.fullPath;
+        const { ok } = await modalStore.confirm({
+            title,
+            description
+        });
+        if (!ok) return;
+
+        try {
+            await webSession.logoutVrchat();
+            await router.replace({
+                name: 'login',
+                query: { reauth: '1', redirect }
+            });
+        } catch {
+            // The shared Web session state exposes a safe error to the login screen.
+        }
+    };
+
+    const handleVrchatReauth = () => {
+        void endWebVrchatSession(t('web.vrchat.reauth_title'), t('web.vrchat.reauth_description'));
+    };
+
     const handleLogoutClick = () => {
+        if (isWebPlatform) {
+            void endWebVrchatSession(t('web.vrchat.logout_title'), t('web.vrchat.logout_description'));
+            return;
+        }
         logout();
     };
 
@@ -333,6 +399,7 @@
     };
 
     const handleOpenCustomNavDialog = () => {
+        if (isReadOnlyWeb) return;
         customNavDialogVisible.value = true;
     };
 
@@ -340,13 +407,14 @@
     const isToolItem = (item) => item?.index?.startsWith('tool-');
 
     const handleUnpinToolItem = async (item) => {
-        if (!isToolItem(item)) {
+        if (isReadOnlyWeb || !isToolItem(item)) {
             return;
         }
         await unpinToolFromNav(item.index.replace(/^tool-/, ''));
     };
 
     const handleQuickCreateDashboard = async () => {
+        if (isReadOnlyWeb) return;
         const dashboard = await dashboardStore.createDashboard(t('dashboard.default_name'));
         const dashboardKey = `${DASHBOARD_NAV_KEY_PREFIX}${dashboard.id}`;
         const currentLayout = [...navLayout.value];
@@ -370,7 +438,7 @@
     };
 
     const handleEditDashboard = async (item) => {
-        if (!isDashboardItem(item)) {
+        if (isReadOnlyWeb || !isDashboardItem(item)) {
             return;
         }
         const dashboardId = item.index.replace(DASHBOARD_NAV_KEY_PREFIX, '');
@@ -382,7 +450,7 @@
     };
 
     const handleDeleteDashboard = async (item) => {
-        if (!isDashboardItem(item)) {
+        if (isReadOnlyWeb || !isDashboardItem(item)) {
             return;
         }
         const { ok } = await modalStore.confirm({
@@ -402,11 +470,13 @@
     };
 
     const handleCustomNavSave = async (layout, hiddenKeys) => {
+        if (isReadOnlyWeb) return;
         await applyCustomNavLayout(layout, hiddenKeys);
         customNavDialogVisible.value = false;
     };
 
     const handleDashboardCreated = async (dashboardId, layout, hiddenKeys) => {
+        if (isReadOnlyWeb) return;
         await handleCustomNavSave(layout, hiddenKeys);
         await router.push({ name: 'dashboard', params: { id: dashboardId } });
         dashboardStore.setEditingDashboardId(dashboardId);

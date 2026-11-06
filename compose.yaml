@@ -1,0 +1,101 @@
+name: vrcx-web
+
+services:
+  vrcx-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - proxy_ca
+    image: ${VRCX_SERVER_IMAGE:-vrcx-web-native:local}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      VrcxWeb__Auth__DataDirectory: /data
+      VrcxWeb__Auth__SetupTokenFile: /run/secrets/vrcx_setup_token
+      VrcxWeb__ReadModel__DatabasePath: /data/runtime/VRCX.sqlite3
+      VrcxWeb__SnapshotImport__StagingDirectory: /data/import-staging
+      VrcxWeb__Worker__BaseAddress: http://127.0.0.1:18081
+      VrcxWeb__WorkerProcess__Enabled: 'true'
+      VrcxWeb__WorkerProcess__DataDirectory: /data/runtime
+      VRCX_WEB_SECRET_KEY_FILE: /run/secrets/vrcx_secret_key
+    group_add:
+      - '${VRCX_SECRET_GID:?Set VRCX_SECRET_GID to the group ID that owns deploy/secrets}'
+    secrets:
+      - source: vrcx_secret_key
+        target: vrcx_secret_key
+      - source: vrcx_setup_token
+        target: vrcx_setup_token
+    volumes:
+      - vrcx-data:/data
+    expose:
+      - '8080'
+    networks:
+      - vrcx
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    shm_size: 256mb
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/healthz >/dev/null &&
+          curl --fail --silent --show-error --max-time 2 http://127.0.0.1:18081/control/v1/status >/dev/null
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+
+  caddy:
+    build:
+      context: .
+      dockerfile: deploy/Caddy.Dockerfile
+    image: ${VRCX_CADDY_IMAGE:-vrcx-web-native-caddy:local}
+    restart: unless-stopped
+    depends_on:
+      vrcx-server:
+        condition: service_healthy
+    environment:
+      VRCX_HOST: ${VRCX_HOST:?Set VRCX_HOST to this host's Tailscale DNS name}
+    ports:
+      - '${VRCX_BIND_ADDRESS:?Set VRCX_BIND_ADDRESS to the host Tailscale IPv4 address}:${VRCX_HTTPS_PORT:-443}:8443'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - vrcx
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+
+secrets:
+  vrcx_secret_key:
+    file: ${VRCX_SECRET_KEY_FILE:-./deploy/secrets/vrcx_secret_key}
+  vrcx_setup_token:
+    file: ${VRCX_SETUP_TOKEN_FILE:-./deploy/secrets/vrcx_setup_token}
+  proxy_ca:
+    file: ${CODEX_PROXY_CERT:-/dev/null}
+
+networks:
+  vrcx:
+    driver: bridge
+
+volumes:
+  vrcx-data:
+  caddy-data:
+  caddy-config:

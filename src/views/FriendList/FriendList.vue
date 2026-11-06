@@ -66,7 +66,7 @@
                                 @input="scheduleFriendsListSearchChange"
                                 @change="friendsListSearchChange" />
                         </div>
-                        <div class="flex items-center">
+                        <div v-if="!isReadOnlyWeb" class="flex items-center">
                             <div v-if="friendsListBulkUnfriendMode" class="inline-block mr-2">
                                 <Button variant="outline" @click="showBulkUnfriendSelectionConfirm">
                                     {{ t('view.friend_list.bulk_unfriend_selection') }}
@@ -171,6 +171,7 @@
     import { confirmDeleteFriend, handleFriendDelete } from '../../coordinators/friendRelationshipCoordinator';
     import { useUserDisplay } from '../../composables/useUserDisplay';
     import { database } from '../../services/database';
+    import { isReadOnlyWeb, isWebPlatform, platformCapabilities } from '../../web/platform';
 
     const { t } = useI18n();
 
@@ -179,8 +180,8 @@
     const { friends, allFavoriteFriendIds } = storeToRefs(useFriendStore());
     const modalStore = useModalStore();
     const { getAllUserStats, getAllUserMutualCount, getAllUserMutualOptedOut } = useFriendStore();
-    const chartsStore = useChartsStore();
-    const isMutualFetching = computed(() => chartsStore.mutualGraphStatus.isFetching);
+    const chartsStore = platformCapabilities.mutualConnections ? useChartsStore() : null;
+    const isMutualFetching = computed(() => Boolean(chartsStore?.mutualGraphStatus.isFetching));
     const isMutualOptOut = computed(() => Boolean(useUserStore().currentUser?.hasSharedConnectionsOptOut));
     const appearanceSettingsStore = useAppearanceSettingsStore();
     const { randomUserColours } = storeToRefs(appearanceSettingsStore);
@@ -310,6 +311,10 @@
     });
 
     async function loadFriendProfiles() {
+        if (!platformCapabilities.userRelatedResources) {
+            friendProfiles.value = new Map();
+            return;
+        }
         const profiles = await database.getAllUserProfiles();
         friendProfiles.value = new Map(profiles.map((profile) => [profile.userId, profile]));
         friendSearchCache.clear();
@@ -323,6 +328,9 @@
     }
 
     async function refreshFriendStats({ force = false } = {}) {
+        if (!platformCapabilities.userHistoryStats && !platformCapabilities.mutualConnections) {
+            return;
+        }
         const friendStatsRefreshKey = getFriendStatsRefreshKey();
         if (!friendStatsRefreshKey) {
             return;
@@ -392,7 +400,7 @@
         }
         const entry = {
             signature,
-            bio: replaceBioSymbols(friendProfiles.value.get(ctx.id)?.bio),
+            bio: replaceBioSymbols(friendProfiles.value.get(ctx.id)?.bio ?? (isWebPlatform ? ctx.ref.bio : undefined)),
             displayName: ctx.ref.displayName ?? '',
             memo: ctx.ref.$memo ?? '',
             normalizedDisplayName: removeConfusables(ctx.ref.displayName ?? ''),
@@ -471,12 +479,14 @@
     }
 
     function toggleFriendsListBulkUnfriendMode() {
+        if (isReadOnlyWeb) return;
         if (!friendsListBulkUnfriendMode.value) {
             selectedFriends.value.clear();
         }
     }
 
     function showBulkUnfriendSelectionConfirm() {
+        if (isReadOnlyWeb) return;
         const pending = friendsListDisplayData.value
             .filter((item) => selectedFriends.value.has(item.id))
             .map((item) => item.displayName);
@@ -497,6 +507,7 @@
     }
 
     async function bulkUnfriendSelection() {
+        if (isReadOnlyWeb) return;
         if (!selectedFriends.value.size) return;
         const selectedFriendsCount = selectedFriends.value.size;
         for (const item of friendsListDisplayData.value) {
@@ -575,7 +586,7 @@
     }
 
     async function loadMutualFriends() {
-        if (isMutualFetching.value) return;
+        if (!chartsStore || !platformCapabilities.mutualConnections || isMutualFetching.value) return;
         await chartsStore.fetchMutualGraph();
         await Promise.allSettled([getAllUserMutualCount(), getAllUserMutualOptedOut()]);
     }

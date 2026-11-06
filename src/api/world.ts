@@ -3,6 +3,8 @@ import type { Json } from '../types/vrcx';
 import { patchAndRefetchActiveQuery, queryKeys } from '../queries';
 import { request } from '../services/request';
 import { applyWorld } from '../coordinators/worldCoordinator';
+import { isWebPlatform } from '../web/platform';
+import { webApi } from '../web/api';
 
 const worldReq = {
     getWorld(params: { worldId: string }): Promise<{ json: Json<World>; ref: any; params: { worldId: string } }> {
@@ -21,6 +23,13 @@ const worldReq = {
         params: SearchWorlds['query'],
         option?: string
     ): Promise<{ json: Json<LimitedWorld[]>; params: SearchWorlds['query']; option?: string }> {
+        const userId = (params as SearchWorlds['query'] & { userId?: string }).userId;
+        if (isWebPlatform && userId) {
+            return webApi.getUserWorlds(userId, params).then((json) => {
+                for (const world of json) applyWorld(world);
+                return { json, params, option };
+            });
+        }
         let endpoint = 'worlds';
         if (typeof option !== 'undefined') {
             endpoint = `worlds/${option}`;

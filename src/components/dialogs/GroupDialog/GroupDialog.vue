@@ -60,7 +60,9 @@
                                 @click="showUserDialog(groupDialog.ref.ownerId)"
                                 v-text="groupDialog.ownerDisplayName"></span>
                         </div>
-                        <div class="ml-2 flex shrink-0 items-center justify-end gap-2">
+                        <div
+                            v-if="platformCapabilities.vrchatMutations"
+                            class="ml-2 flex shrink-0 items-center justify-end gap-2">
                             <template v-if="groupDialog.inGroup && groupDialog.ref?.myMember">
                                 <TooltipWrapper
                                     v-if="groupDialog.ref.myMember?.isRepresenting"
@@ -480,7 +482,7 @@
                 </div>
             </div>
 
-            <div class="rounded-xl bg-(--profile-card) p-3 mt-2.5">
+            <div v-if="platformCapabilities.activityDetails" class="rounded-xl bg-(--profile-card) p-3 mt-2.5">
                 <div class="flex items-center justify-between mb-2 pb-2 border-b border-muted-foreground/20">
                     <span
                         class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
@@ -628,8 +630,10 @@
                 </template>
             </TabsUnderline>
         </div>
-        <GroupPostEditDialog :dialog-data="groupPostEditDialog" :selected-gallery-file="selectedGalleryFile" />
-        <GroupTransferDialog :dialog-data="groupTransferDialog" @close="groupTransferDialog.visible = false" />
+        <template v-if="platformCapabilities.vrchatMutations">
+            <GroupPostEditDialog :dialog-data="groupPostEditDialog" :selected-gallery-file="selectedGalleryFile" />
+            <GroupTransferDialog :dialog-data="groupTransferDialog" @close="groupTransferDialog.visible = false" />
+        </template>
     </div>
 </template>
 
@@ -719,16 +723,24 @@
     import GroupTransferDialog from './GroupTransferDialog.vue';
     import { showUserDialog } from '../../../coordinators/userCoordinator';
     import { showGroupMemberModerationDialog, showGroupRolesDialog } from '../../../coordinators/groupCoordinator';
+    import { platformCapabilities } from '../../../web/platform';
 
     const { t } = useI18n();
-    const groupDialogTabs = computed(() => [
-        { value: 'Info', label: t('dialog.group.info.header') },
-        { value: 'Posts', label: t('dialog.group.posts.header') },
-        { value: 'Members', label: t('dialog.group.members.header') },
-        { value: 'Photos', label: t('dialog.group.gallery.header') },
-        ...(groupDialog.value.ref.storeId ? [{ value: 'Store', label: t('dialog.group.store.header') }] : []),
-        { value: 'JSON', label: t('dialog.group.json.header') }
-    ]);
+    const groupDialogTabs = computed(() => {
+        const tabs = [{ value: 'Info', label: t('dialog.group.info.header') }];
+        if (platformCapabilities.groupRelatedResources) {
+            tabs.push(
+                { value: 'Posts', label: t('dialog.group.posts.header') },
+                { value: 'Members', label: t('dialog.group.members.header') },
+                { value: 'Photos', label: t('dialog.group.gallery.header') }
+            );
+        }
+        if (platformCapabilities.store && groupDialog.value.ref.storeId) {
+            tabs.push({ value: 'Store', label: t('dialog.group.store.header') });
+        }
+        tabs.push({ value: 'JSON', label: t('dialog.group.json.header') });
+        return tabs;
+    });
 
     const modalStore = useModalStore();
 
@@ -861,6 +873,7 @@
     }
 
     function confirmDeleteGroupPost(post) {
+        if (!platformCapabilities.vrchatMutations) return;
         modalStore
             .confirm({
                 description: t('confirm.delete_post'),
@@ -959,6 +972,7 @@
     }
 
     function showGroupPostEditDialog(groupId, post) {
+        if (!platformCapabilities.vrchatMutations) return;
         const D = groupPostEditDialog;
         D.sendNotification = true;
         D.groupRef = {};

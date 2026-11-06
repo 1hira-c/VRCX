@@ -57,6 +57,7 @@
 
     import { Button } from '@/components/ui/button';
     import { navDefinitions } from '@/shared/constants/ui';
+    import { isPlatformViewAvailable, isReadOnlyWeb } from '@/web/platform';
 
     import PanelSelector from './PanelSelector.vue';
     import { panelComponentMap } from './panelRegistry';
@@ -97,7 +98,7 @@
     });
 
     const panelComponent = computed(() => {
-        if (!panelKey.value) return null;
+        if (!panelKey.value || !isPlatformViewAvailable(panelKey.value)) return null;
         return panelComponentMap[panelKey.value] || null;
     });
 
@@ -105,7 +106,7 @@
         if (!isWidget.value) return {};
         return {
             config: panelConfig.value,
-            configUpdater: (newConfig) => emitConfigUpdate(newConfig)
+            configUpdater: isReadOnlyWeb ? null : (newConfig) => emitConfigUpdate(newConfig)
         };
     });
 

@@ -3,6 +3,9 @@ import { storeToRefs } from 'pinia';
 
 import { useAdvancedSettingsStore, useSearchStore } from '../../../stores';
 import { lookupAvatars } from '../../../coordinators/avatarCoordinator';
+import { applyAvatar } from '../../../coordinators/avatarCoordinator';
+import { searchWebEntities } from '../../../web/entities';
+import { isWebPlatform } from '../../../web/platform';
 
 /**
  * Avatar search composable for Search view.
@@ -22,11 +25,14 @@ export function useSearchAvatar() {
         const avatars = new Map();
         const query = searchText.value;
 
-        if (query && query.length >= 3 && avatarRemoteDatabase.value) {
-            const data = await lookupAvatars('search', query);
+        if (query && query.length >= 3 && (isWebPlatform || avatarRemoteDatabase.value)) {
+            const data = isWebPlatform
+                ? (await searchWebEntities('avatar', query, { offset: 0, limit: 200 })).items
+                : await lookupAvatars('search', query);
             if (data && typeof data === 'object') {
                 data.forEach((avatar) => {
-                    avatars.set(avatar.id, avatar);
+                    const ref = isWebPlatform ? applyAvatar(avatar) : avatar;
+                    avatars.set(ref.id, ref);
                 });
             }
         }

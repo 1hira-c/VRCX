@@ -16,3 +16,8 @@ AGENTS.md
 AI_GUIDE.md
 CLAUDE.md
 coverage/
+**/bin/
+**/obj/
+deploy/secrets/*
+!deploy/secrets/.gitkeep
+deploy/vrcx-local-ca.crt

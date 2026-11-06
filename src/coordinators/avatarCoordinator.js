@@ -30,6 +30,9 @@ import { useUserStore } from '../stores/user';
 import { useVRCXUpdaterStore } from '../stores/vrcxUpdater';
 
 import webApiService from '../services/webapi';
+import { getWebEntity } from '../web/entities';
+import { isWebPlatform, platformCapabilities } from '../web/platform';
+import { webApi } from '../web/api';
 
 /**
  * @param {object} json
@@ -61,7 +64,7 @@ export function applyAvatar(json) {
         favoriteStore.syncLocalAvatarFavoriteRef(avatarRef);
 
         // update db cache
-        database.addAvatarToCache(avatarRef);
+        if (!isWebPlatform) database.addAvatarToCache(avatarRef);
     }
     patchAvatarFromEvent(ref);
     syncAvatarSearchIndex(ref);
@@ -118,16 +121,20 @@ export function showAvatarDialog(avatarId, options = {}) {
         uiStore.setDialogCrumbLabel('avatar', D.id, D.ref?.name || D.id);
         nextTick(() => (D.loading = false));
     }
-    const loadAvatarRequest = forceRefresh
-        ? avatarRequest.getAvatar({ avatarId })
-        : queryRequest.fetch('avatar.dialog', { avatarId });
+    const loadAvatarRequest = isWebPlatform
+        ? getWebEntity('avatar', avatarId).then((json) => ({ json }))
+        : forceRefresh
+          ? avatarRequest.getAvatar({ avatarId })
+          : queryRequest.fetch('avatar.dialog', { avatarId });
     loadAvatarRequest
         .then((args) => {
             const ref = applyAvatar(args.json);
             D.ref = ref;
             uiStore.setDialogCrumbLabel('avatar', D.id, D.ref?.name || D.id);
             avatarStore.getAvatarGallery(avatarId);
-            avatarStore.updateVRChatAvatarCache();
+            if (!isWebPlatform) {
+                avatarStore.updateVRChatAvatarCache();
+            }
             if (/quest/.test(ref.tags)) {
                 D.isQuestFallback = true;
             }
@@ -144,7 +151,7 @@ export function showAvatarDialog(avatarId, options = {}) {
                     break;
                 }
             }
-            if (Object.keys(D.fileAnalysis).length === 0) {
+            if (platformCapabilities.localGameIntegration && Object.keys(D.fileAnalysis).length === 0) {
                 getBundleDateSize(ref);
             }
         })
@@ -277,6 +284,18 @@ export async function lookupAvatars(type, search) {
     const vrcxUpdaterStore = useVRCXUpdaterStore();
 
     const avatars = new Map();
+    if (isWebPlatform && type === 'authorId') {
+        let offset = 0;
+        while (offset <= 10_000) {
+            const page = await webApi.getUserRemoteAvatars(search, { offset, limit: 100 });
+            for (const avatar of page) {
+                if (avatar?.id && avatar.authorId === search && !avatars.has(avatar.id)) avatars.set(avatar.id, avatar);
+            }
+            if (page.length < 100) break;
+            offset += 100;
+        }
+        return avatars;
+    }
     if (type === 'search') {
         try {
             const url = `${

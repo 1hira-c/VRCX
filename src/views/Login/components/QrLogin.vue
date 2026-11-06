@@ -4,11 +4,11 @@
         <p class="text-xs text-muted-foreground">{{ t('view.login.qr.hint') }}</p>
     </div>
     <slot />
-    <Button v-if="!qrImage" variant="secondary" size="lg" class="mt-2 w-full" @click="start">
+    <Button v-if="!isWebPlatform && !qrImage" variant="secondary" size="lg" class="mt-2 w-full" @click="start">
         <QrCode />
         {{ t('view.login.qr.button') }}
     </Button>
-    <Button v-else size="lg" variant="outline" class="mt-4 w-full" @click="stop">{{
+    <Button v-if="!isWebPlatform && qrImage" size="lg" variant="outline" class="mt-4 w-full" @click="stop">{{
         t('view.login.qr.cancel')
     }}</Button>
 </template>
@@ -26,6 +26,7 @@
     import { authRequest } from '../../../api';
     import { getCurrentUser } from '../../../coordinators/userCoordinator';
     import { useAuthStore } from '../../../stores';
+    import { isWebPlatform } from '../../../web/platform';
 
     import webApiService from '../../../services/webapi';
     import * as workerTimers from 'worker-timers';

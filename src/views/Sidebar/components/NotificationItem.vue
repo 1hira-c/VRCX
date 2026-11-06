@@ -52,7 +52,7 @@
                             {{ relativeTime }}
                         </span>
                     </TooltipWrapper>
-                    <div class="flex items-center gap-1">
+                    <div v-if="!isReadOnlyWeb" class="flex items-center gap-1">
                         <template v-if="!isNotificationExpired(notification)">
                             <TooltipWrapper
                                 v-if="notification.type === 'friendRequest'"
@@ -266,6 +266,7 @@
     import { showUserDialog } from '../../../coordinators/userCoordinator';
     import { useInviteChecks } from '../../../composables/useInviteChecks';
     import { useUserDisplay } from '../../../composables/useUserDisplay';
+    import { isReadOnlyWeb } from '../../../web/platform';
 
     import Location from '../../../components/Location.vue';
 
@@ -491,7 +492,7 @@
 
     onBeforeUnmount(() => {
         // Mark as seen (queued to avoid 429 rate-limiting)
-        if (isNotificationExpired(props.notification) || isSeen.value) {
+        if (isReadOnlyWeb || isNotificationExpired(props.notification) || isSeen.value) {
             return;
         }
         const version = props.notification.version || 1;

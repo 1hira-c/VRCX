@@ -25,6 +25,8 @@ import { watchState } from '../services/watchState';
 import configRepository from '../services/config';
 
 import * as workerTimers from 'worker-timers';
+import { getWebEntity } from '../web/entities';
+import { isWebPlatform, platformCapabilities } from '../web/platform';
 
 /**
  * @param ref
@@ -286,7 +288,7 @@ export function showGroupDialog(groupId, options = {}) {
     D.visible = true;
     if (isMainDialogOpen && D.id === groupId && !forceRefresh) {
         uiStore.setDialogCrumbLabel('group', D.id, D.ref?.name || D.id);
-        instanceStore.applyGroupDialogInstances();
+        if (!isWebPlatform) instanceStore.applyGroupDialogInstances();
         D.loading = false;
         return;
     }
@@ -308,10 +310,9 @@ export function showGroupDialog(groupId, options = {}) {
     D.members = [];
     D.memberFilter = FILTER_EVERYONE;
     D.calendar = [];
-    const loadGroupRequest = groupRequest.getGroup({
-        groupId,
-        includeRoles: true
-    });
+    const loadGroupRequest = isWebPlatform
+        ? getWebEntity('group', groupId).then((json) => ({ json, ref: applyGroup(json) }))
+        : groupRequest.getGroup({ groupId, includeRoles: true });
 
     loadGroupRequest
         .catch((err) => {
@@ -331,25 +332,31 @@ export function showGroupDialog(groupId, options = {}) {
                 D.ownerDisplayName = ref.ownerId;
                 D.visible = true;
                 D.loading = false;
-                queryRequest
-                    .fetch('user.dialog', {
-                        userId: ref.ownerId
-                    })
-                    .then((args1) => {
+                if (isWebPlatform && ref.ownerId) {
+                    getWebEntity('user', ref.ownerId)
+                        .then((owner) => {
+                            if (D.id === ref.id) D.ownerDisplayName = owner.displayName;
+                        })
+                        .catch(() => {});
+                } else if (!isWebPlatform) {
+                    queryRequest.fetch('user.dialog', { userId: ref.ownerId }).then((args1) => {
                         D.ownerDisplayName = args1.ref.displayName;
                     });
-                database.getLastGroupVisit(D.id).then((r) => {
-                    if (D.id === ref.id) {
-                        D.lastVisit = r.created_at;
-                    }
-                });
-                database.getGroupJoinCount(D.id).then((r) => {
-                    if (D.id === ref.id) {
-                        D.joinCount = r.joinCount;
-                    }
-                });
-                instanceStore.applyGroupDialogInstances();
-                getGroupDialogGroup(groupId, ref);
+                }
+                if (platformCapabilities.activityDetails) {
+                    database.getLastGroupVisit(D.id).then((r) => {
+                        if (D.id === ref.id) D.lastVisit = r.created_at;
+                    });
+                    database.getGroupJoinCount(D.id).then((r) => {
+                        if (D.id === ref.id) D.joinCount = r.joinCount;
+                    });
+                }
+                if (!isWebPlatform) {
+                    instanceStore.applyGroupDialogInstances();
+                    getGroupDialogGroup(groupId, ref);
+                } else {
+                    groupStore.getAllGroupPosts({ groupId });
+                }
             }
         });
 }

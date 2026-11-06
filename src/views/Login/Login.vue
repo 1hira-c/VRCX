@@ -1,8 +1,8 @@
 <template>
     <div class="absolute inset-0 flex flex-col items-center overflow-y-auto px-4 pt-12">
         <div class="absolute top-0 left-0 m-1.5">
-            <LoginSettingsDialog />
-            <TooltipWrapper v-if="!noUpdater" side="top" :content="t('view.login.updater')">
+            <LoginSettingsDialog v-if="!isWebPlatform" />
+            <TooltipWrapper v-if="!isWebPlatform && !noUpdater" side="top" :content="t('view.login.updater')">
                 <Button class="rounded-full mr-2 text-xs" size="icon-sm" variant="ghost" @click="showVRCXUpdateDialog">
                     <span class="relative inline-flex items-center justify-center">
                         <ArrowBigDownDash />
@@ -93,7 +93,7 @@
                                     </Field>
                                 </VeeField>
                             </FieldGroup>
-                            <div class="mt-3 flex items-center justify-between gap-2 text-sm">
+                            <div v-if="!isWebPlatform" class="mt-3 flex items-center justify-between gap-2 text-sm">
                                 <label class="flex w-fit items-center gap-2">
                                     <Checkbox v-model="loginForm.saveCredentials" />
                                     <span>{{ t('view.login.field.saveCredentials') }}</span>
@@ -226,6 +226,7 @@
     import configRepository from '../../services/config';
     import { useUserDisplay } from '../../composables/useUserDisplay';
     import { watchState } from '../../services/watchState';
+    import { isWebPlatform } from '../../web/platform';
 
     import LoginSettingsDialog from './Dialog/LoginSettingsDialog.vue';
     import ResetPasswordDialog from './Dialog/ResetPasswordDialog.vue';
@@ -250,7 +251,7 @@
 
     /** @type {import('vue').Ref<Record<string, any>>} */
     const savedCredentials = ref({});
-    const hasSavedCredentials = computed(() => Object.keys(savedCredentials.value).length !== 0);
+    const hasSavedCredentials = computed(() => !isWebPlatform && Object.keys(savedCredentials.value).length !== 0);
     const qrActive = ref(false);
     const requiredMessage = 'Required';
 
@@ -298,12 +299,29 @@
     const onSubmit = handleSubmit(async (formValues) => {
         loginForm.value.username = formValues.username ?? '';
         loginForm.value.password = formValues.password ?? '';
-        await login();
-        await updateSavedCredentials();
+        if (!isWebPlatform) {
+            await login();
+            await updateSavedCredentials();
+            return;
+        }
+
+        try {
+            await login();
+        } finally {
+            // The browser sends the password once to the fixed BFF and does not
+            // retain it in either the auth store or the rendered form.
+            resetForm({
+                values: {
+                    username: formValues.username ?? '',
+                    password: ''
+                }
+            });
+            loginForm.value.password = '';
+        }
     });
 
     async function updateSavedCredentials() {
-        if (watchState.isLoggedIn) {
+        if (isWebPlatform || watchState.isLoggedIn) {
             return;
         }
         savedCredentials.value = await getAllSavedCredentials();
@@ -342,7 +360,7 @@
             const savedLanguage = await configRepository.getString('VRCX_appLanguage');
             if (savedLanguage || !isActive) return;
 
-            const systemLanguage = await AppApi.CurrentLanguage();
+            const systemLanguage = isWebPlatform ? navigator.language : await AppApi.CurrentLanguage();
             if (!systemLanguage || !isActive) return;
 
             const matchedCode = resolveSystemLanguage(systemLanguage, languageCodes);
@@ -389,7 +407,7 @@
     }
 
     onBeforeMount(async () => {
-        updateSavedCredentials();
+        if (!isWebPlatform) updateSavedCredentials();
         detectAndPromptLanguage();
     });
 

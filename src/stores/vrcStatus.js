@@ -1,6 +1,7 @@
 import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { useVrcxStore } from './vrcx';
+import { platformCapabilities } from '../web/platform';
 
 import { openExternalLink } from '../shared/utils';
 
@@ -115,6 +116,9 @@ export const useVrcStatusStore = defineStore('VrcStatus', () => {
      * @returns {void}
      */
     function init() {
+        if (platformCapabilities.serverSession) {
+            return;
+        }
         getVrcStatus();
         workerTimers.setInterval(() => {
             const interval = vrcxStore.isBrowserFocused ? pollingInterval.value : slowPollingInterval.value;

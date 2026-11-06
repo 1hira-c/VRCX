@@ -6,6 +6,7 @@ import { queryRequest } from '../api';
 import { getAvatarHistory, preloadOwnAvatars } from '../coordinators/avatarCoordinator';
 import { database } from '../services/database';
 import { watchState } from '../services/watchState';
+import { isWebPlatform } from '../web/platform.js';
 
 export const useAvatarStore = defineStore('Avatar', () => {
     let cachedAvatarModerations = new Map();
@@ -49,7 +50,7 @@ export const useAvatarStore = defineStore('Avatar', () => {
             cachedAvatarNames.clear();
             cachedAvatarModerations.clear();
             avatarHistory.value = [];
-            if (isLoggedIn) {
+            if (isLoggedIn && !isWebPlatform) {
                 getAvatarHistory();
                 preloadOwnAvatars();
             }

@@ -4,6 +4,9 @@ import { storeToRefs } from 'pinia';
 import { replaceBioSymbols } from '../../../shared/utils';
 import { useAuthStore, useSearchStore, useWorldStore } from '../../../stores';
 import { worldRequest } from '../../../api';
+import { applyWorld } from '../../../coordinators/worldCoordinator';
+import { searchWebEntities } from '../../../web/entities';
+import { isWebPlatform } from '../../../web/platform';
 
 /** @returns {import('vrchat').SearchWorlds['query']} */
 function createDefaultSearchWorldParams() {
@@ -110,7 +113,7 @@ export function useSearchWorld() {
     /**
      * @param go
      */
-    function moreSearchWorld(go) {
+    async function moreSearchWorld(go) {
         const params = searchWorldParams.value;
         if (go) {
             params.offset += params.n * go;
@@ -119,22 +122,42 @@ export function useSearchWorld() {
             }
         }
         isSearchWorldLoading.value = true;
-        worldRequest
-            .getWorlds(params, searchWorldOption.value)
-            .finally(() => {
-                isSearchWorldLoading.value = false;
-            })
-            .then((args) => {
-                const map = new Map();
-                for (const json of args.json) {
-                    const ref = cachedWorlds.get(json.id);
-                    if (typeof ref !== 'undefined') {
-                        map.set(ref.id, ref);
-                    }
+        try {
+            const json = isWebPlatform
+                ? (
+                      await searchWebEntities(
+                          'world',
+                          params.search || '',
+                          {
+                              offset: params.offset,
+                              limit: params.n
+                          },
+                          {
+                              worldOption: searchWorldOption.value || undefined,
+                              sort: params.sort,
+                              order: params.order,
+                              featured: params.featured,
+                              tag: params.tag,
+                              user: params.user,
+                              releaseStatus: params.releaseStatus
+                          }
+                      )
+                  ).items
+                : (await worldRequest.getWorlds(params, searchWorldOption.value)).json;
+            if (isWebPlatform) {
+                json.forEach((world) => applyWorld(world));
+            }
+            const map = new Map();
+            for (const item of json) {
+                const ref = cachedWorlds.get(item.id);
+                if (typeof ref !== 'undefined') {
+                    map.set(ref.id, ref);
                 }
-                searchWorldResults.value = Array.from(map.values());
-                return args;
-            });
+            }
+            searchWorldResults.value = Array.from(map.values());
+        } finally {
+            isSearchWorldLoading.value = false;
+        }
     }
 
     function clearWorldSearch() {

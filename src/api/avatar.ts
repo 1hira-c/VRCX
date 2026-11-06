@@ -14,6 +14,9 @@ import type { Json } from '../types/vrcx';
 import { patchAndRefetchActiveQuery, queryKeys } from '../queries';
 import { request } from '../services/request';
 import { applyCurrentUser } from '../coordinators/userCoordinator';
+import { useUserStore } from '../stores';
+import { isWebPlatform } from '../web/platform';
+import { webApi } from '../web/api';
 
 const avatarReq = {
     getAvatar(params: { avatarId: string }): Promise<{ json: Json<Avatar>; params: { avatarId: string } }> {
@@ -29,10 +32,11 @@ const avatarReq = {
     },
 
     getAvatars(params: SearchAvatars['query']): Promise<{ json: Json<Avatar[]>; params: SearchAvatars['query'] }> {
-        return request('avatars', {
-            method: 'GET',
-            params
-        }).then((json) => {
+        const source =
+            isWebPlatform && params.user === 'me'
+                ? webApi.getUserOwnedAvatars(useUserStore().currentUser.id, params)
+                : request('avatars', { method: 'GET', params });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -165,10 +169,8 @@ const avatarReq = {
             n: 100,
             offset: 0
         };
-        return request(`files`, {
-            params,
-            method: 'GET'
-        }).then((json) => {
+        const source = isWebPlatform ? webApi.getAvatarGallery(avatarId) : request(`files`, { params, method: 'GET' });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -237,10 +239,10 @@ const avatarReq = {
     getLicensedAvatars(
         params: GetLicensedAvatars['query']
     ): Promise<{ json: Json<Avatar[]>; params: GetLicensedAvatars['query'] }> {
-        return request('avatars/licensed', {
-            method: 'GET',
-            params
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getUserLicensedAvatars(useUserStore().currentUser.id, params)
+            : request('avatars/licensed', { method: 'GET', params });
+        return source.then((json) => {
             const args = {
                 json,
                 params

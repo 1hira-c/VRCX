@@ -274,7 +274,8 @@ namespace VRCX
         public static void Init()
         {
             ConfigureLogger();
-            Update.Check();
+            if (!StartupArgs.LaunchArguments.IsServerMode)
+                Update.Check();
 
             logger.Info("{0} Starting...", Version);
             logger.Info("Args: {0}", JsonSerializer.Serialize(StartupArgs.Args));
@@ -283,8 +284,11 @@ namespace VRCX
 
             AppApiInstance = new AppApiElectron();
 
-            VRCXVRInstance = new VRCXVRElectron();
-            VRCXVRInstance.Init();
+            if (!StartupArgs.LaunchArguments.IsServerMode)
+            {
+                VRCXVRInstance = new VRCXVRElectron();
+                VRCXVRInstance.Init();
+            }
         }
 #endif
     }
@@ -292,6 +296,8 @@ namespace VRCX
 #if LINUX
     public class ProgramElectron
     {
+        private static int isExiting;
+
         public void PreInit(string version, string[] args)
         {
             Program.PreInit(version, args);
@@ -300,6 +306,28 @@ namespace VRCX
         public void Init()
         {
             Program.Init();
+        }
+
+        public void Exit()
+        {
+            if (Interlocked.Exchange(ref isExiting, 1) != 0)
+                return;
+
+            try
+            {
+                WebApi.Instance.Exit();
+            }
+            finally
+            {
+                try
+                {
+                    VRCXStorage.Instance.Save();
+                }
+                finally
+                {
+                    SQLite.Instance.Exit();
+                }
+            }
         }
     }
 #endif

@@ -13,6 +13,7 @@ import { useNotificationsSettingsStore } from './settings/notifications';
 import { useUserStore } from './user';
 import { useWristOverlaySettingsStore } from './settings/wristOverlay';
 import { watchState } from '../services/watchState';
+import { isWebPlatform } from '../web/platform.js';
 
 export const useSharedFeedStore = defineStore('SharedFeed', () => {
     const friendStore = useFriendStore();
@@ -86,7 +87,7 @@ export const useSharedFeedStore = defineStore('SharedFeed', () => {
     watch(
         () => [watchState.isFriendsLoaded, watchState.isFavoritesLoaded],
         ([isFriendsLoaded, isFavoritesLoaded]) => {
-            if (isFriendsLoaded && isFavoritesLoaded) {
+            if (!isWebPlatform && isFriendsLoaded && isFavoritesLoaded) {
                 sharedFeedData.value = [];
                 loadSharedFeed();
             }
@@ -349,6 +350,9 @@ export const useSharedFeedStore = defineStore('SharedFeed', () => {
     }
 
     async function sendSharedFeed() {
+        if (isWebPlatform) {
+            return;
+        }
         await AppApi.ExecuteVrOverlayFunction('wristFeedUpdate', JSON.stringify(sharedFeedData.value));
     }
 

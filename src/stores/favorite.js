@@ -9,6 +9,7 @@ import { database } from '../services/database';
 import { processBulk } from '../services/request';
 import { useAppearanceSettingsStore } from './settings/appearance';
 import { watchState } from '../services/watchState';
+import { isWebPlatform } from '../web/platform.js';
 import { onLoginStateChanged } from '../coordinators/favoriteCoordinator';
 
 export const useFavoriteStore = defineStore('Favorite', () => {
@@ -232,8 +233,11 @@ export const useFavoriteStore = defineStore('Favorite', () => {
             worldImportDialogVisible.value = false;
             avatarImportDialogVisible.value = false;
             friendImportDialogVisible.value = false;
-            // Cross-store operations delegated to coordinator
-            onLoginStateChanged(isLoggedIn);
+            // The desktop coordinator performs mutating VRChat synchronization.
+            // Web state is hydrated explicitly from the fixed read model instead.
+            if (!isWebPlatform) {
+                onLoginStateChanged(isLoggedIn);
+            }
         },
         { flush: 'sync' }
     );

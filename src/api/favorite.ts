@@ -17,6 +17,8 @@ import { useUserStore } from '../stores';
 import { handleFavoriteAdd, handleFavoriteDelete, handleFavoriteGroupClear } from '../coordinators/favoriteCoordinator';
 import { queryClient } from '../queries';
 import { request } from '../services/request';
+import { isWebPlatform } from '../web/platform';
+import { webApi } from '../web/api';
 
 function getCurrentUserId() {
     return useUserStore().currentUser.id;
@@ -94,10 +96,12 @@ const favoriteReq = {
     getFavoriteGroups(
         params: GetFavoriteGroups['query']
     ): Promise<{ json: Json<FavoriteGroup[]>; params: GetFavoriteGroups['query'] }> {
-        return request('favorite/groups', {
-            method: 'GET',
-            params
-        }).then((json) => {
+        const ownerId = (params as GetFavoriteGroups['query'] & { ownerId?: string }).ownerId;
+        const source =
+            isWebPlatform && ownerId
+                ? webApi.getUserFavoriteGroups(ownerId, params)
+                : request('favorite/groups', { method: 'GET', params });
+        return source.then((json) => {
             const args = {
                 json,
                 params
@@ -141,10 +145,11 @@ const favoriteReq = {
     getFavoriteWorlds(
         params: GetFavoritedWorlds['query']
     ): Promise<{ json: Json<FavoritedWorld[]>; params: GetFavoritedWorlds['query'] }> {
-        return request('worlds/favorites', {
-            method: 'GET',
-            params
-        }).then((json) => {
+        const source =
+            isWebPlatform && params.userId && params.tag
+                ? webApi.getUserFavoriteWorlds(params.userId, params.tag, params)
+                : request('worlds/favorites', { method: 'GET', params });
+        return source.then((json) => {
             const args = {
                 json,
                 params

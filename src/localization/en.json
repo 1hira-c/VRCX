@@ -3611,6 +3611,103 @@
             }
         }
     },
+    "web": {
+        "sync": {
+            "last_success": "Last successful sync: {time}",
+            "last_success_short": "Last",
+            "never": "Never",
+            "events": "Updates",
+            "state": {
+                "healthy": "Synced",
+                "starting": "Starting sync",
+                "authenticating": "Authenticating",
+                "syncing": "Syncing",
+                "connecting": "Connecting",
+                "rate_limited": "VRChat rate limited",
+                "degraded": "Retrying sync",
+                "error": "Sync failed",
+                "requires_authentication": "VRChat reauthentication required",
+                "not_configured": "Connect VRChat",
+                "stale": "Sync data is stale",
+                "unknown": "Checking sync status"
+            },
+            "compact": {
+                "healthy": "Synced",
+                "starting": "Starting",
+                "authenticating": "Auth",
+                "syncing": "Syncing",
+                "connecting": "Connecting",
+                "rate_limited": "Rate limit",
+                "degraded": "Retrying",
+                "error": "Sync failed",
+                "requires_authentication": "Reauthenticate",
+                "not_configured": "Not connected",
+                "stale": "Stale data",
+                "unknown": "Checking"
+            },
+            "connection": {
+                "idle": "Idle",
+                "connecting": "Connecting",
+                "connected": "Connected",
+                "reconnecting": "Reconnecting",
+                "disconnected": "Disconnected",
+                "closed": "Closed",
+                "error": "Failed",
+                "unknown": "Unknown"
+            }
+        },
+        "history": {
+            "game_log_pc_agent_notice": "PC-derived game log entries are available through the imported snapshot. They will not update until the PC agent is introduced."
+        },
+        "vrchat": {
+            "reauthenticate": "Reauthenticate VRChat",
+            "logout": "Log out of VRChat",
+            "reauth_title": "Reauthenticate VRChat?",
+            "reauth_description": "End the current VRChat session and return to the login screen. The VRCX Web administrator session remains signed in.",
+            "logout_title": "Log out of VRChat?",
+            "logout_description": "End the current VRChat session and return to the login screen. The VRCX Web administrator session remains signed in.",
+            "status_tooltip": "VRChat: {status}. Click to reauthenticate.",
+            "status": {
+                "authenticated": "Authenticated",
+                "authenticating": "Authenticating",
+                "two_factor_required": "Waiting for 2FA",
+                "requires_authentication": "Reauthentication required",
+                "unknown": "Unknown status"
+            }
+        },
+        "devices": {
+            "menu": "Web Device Management",
+            "title": "Web Device Management",
+            "description": "Add or revoke browsers that can access VRCX Web. These administrator sessions are separate from VRChat login.",
+            "add_title": "Add a new device",
+            "add_description": "Open the QR code or one-time code on the new device.",
+            "issue_pairing": "Create pairing",
+            "pairing_qr_alt": "VRCX Web device pairing QR code",
+            "pairing_code": "Pairing code",
+            "expires_at": "Expires: {time}",
+            "pairing_warning": "This code can be used only once. Do not share it with anyone except the device you are adding.",
+            "connected_title": "Connected devices",
+            "connected_description": "Revoke sessions you no longer need.",
+            "refresh": "Refresh device list",
+            "empty": "No connected devices.",
+            "unnamed": "Unnamed device",
+            "current": "This device",
+            "revoked": "Revoked",
+            "last_seen_at": "Last used: {time}",
+            "no_record": "No record",
+            "revoke": "Revoke",
+            "admin_session_title": "VRCX Web administrator session",
+            "admin_session_description": "Logging out here does not stop VRChat synchronization on the server or remove saved history.",
+            "admin_logout": "Log out of server administration",
+            "invalid_pairing_url": "A safe pairing URL could not be created.",
+            "revoke_current_title": "Revoke this device session?",
+            "revoke_title": "Revoke the device session?",
+            "revoke_current_description": "This browser will return to the VRCX Web administrator login. Synchronization continues on the server.",
+            "revoke_description": "{name} will no longer be able to access VRCX Web.",
+            "admin_logout_title": "Log out of VRCX Web administration?",
+            "admin_logout_description": "Only this browser's administrator session will end. VRChat synchronization continues on the server."
+        }
+    },
     "status_bar": {
         "game": "Game",
         "game_running": "VRChat is running",

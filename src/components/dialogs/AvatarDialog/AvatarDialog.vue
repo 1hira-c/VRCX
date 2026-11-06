@@ -108,7 +108,7 @@
                                     </Badge>
                                 </TooltipWrapper>
                                 <Badge
-                                    v-if="avatarDialog.inCache"
+                                    v-if="platformCapabilities.desktopIntegration && avatarDialog.inCache"
                                     variant="outline"
                                     class="cursor-pointer mr-1.5 mt-1.5"
                                     @click="openFolderGeneric(avatarDialog.cachePath)">
@@ -173,6 +173,7 @@
                             </div>
                         </div>
                         <div
+                            v-if="platformCapabilities.vrchatMutations"
                             class="col-start-2 row-start-1 row-span-2 grid grid-cols-2 flex-none items-center justify-end gap-2 self-start">
                             <TooltipWrapper
                                 v-if="avatarDialog.isFavorite"
@@ -416,7 +417,7 @@
                     </div>
                 </div>
 
-                <div class="rounded-xl bg-(--profile-card) p-3 mt-2.5">
+                <div v-if="platformCapabilities.activityDetails" class="rounded-xl bg-(--profile-card) p-3 mt-2.5">
                     <div class="flex items-center mb-2 pb-2 border-b border-muted-foreground/20">
                         <span
                             class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
@@ -464,13 +465,16 @@
                             <div
                                 class="h-full min-h-0 overflow-y-auto flex flex-wrap content-start items-start rounded-xl bg-(--profile-card) p-3"
                                 style="max-height: unset"
-                                v-if="avatarDialog.galleryImages.length || isAvatarOwner">
+                                v-if="
+                                    avatarDialog.galleryImages.length ||
+                                    (platformCapabilities.vrchatMutations && isAvatarOwner)
+                                ">
                                 <div class="w-full">
                                     <div
                                         class="flex justify-between text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2 pb-2 border-b border-border">
                                         <span>{{ t('dialog.avatar.info.gallery') }}</span>
                                         <Button
-                                            v-if="isAvatarOwner"
+                                            v-if="platformCapabilities.vrchatMutations && isAvatarOwner"
                                             size="sm"
                                             variant="outline"
                                             class="h-6"
@@ -484,6 +488,7 @@
                                         </Button>
                                     </div>
                                     <input
+                                        v-if="platformCapabilities.vrchatMutations && isAvatarOwner"
                                         id="AvatarGalleryUploadButton"
                                         type="file"
                                         accept="image/*"
@@ -511,7 +516,7 @@
                                                             @click="showFullscreenImageDialog(image.url)"
                                                             loading="lazy" />
                                                         <div
-                                                            v-if="isAvatarOwner"
+                                                            v-if="platformCapabilities.vrchatMutations && isAvatarOwner"
                                                             class="absolute top-1 right-1 flex gap-1">
                                                             <Button
                                                                 size="icon-sm"
@@ -594,6 +599,7 @@
                                             v-text="listing.description"></span>
                                     </div>
                                     <Button
+                                        v-if="platformCapabilities.store"
                                         size="sm"
                                         variant="outline"
                                         class="flex-none ml-2"
@@ -619,7 +625,8 @@
                                     :autosize="true"
                                     :placeholder="t('dialog.avatar.info.memo_placeholder')"
                                     input-class="resize-none min-h-0"
-                                    @change="onAvatarMemoChange" />
+                                    :readonly="!platformCapabilities.vrchatMutations"
+                                    @change="platformCapabilities.vrchatMutations && onAvatarMemoChange()" />
                             </div>
                         </div>
                     </template>
@@ -635,7 +642,7 @@
                     </template>
                 </TabsUnderline>
             </div>
-            <template v-if="avatarDialog.visible">
+            <template v-if="avatarDialog.visible && platformCapabilities.vrchatMutations">
                 <SetAvatarTagsDialog v-model:setAvatarTagsDialog="setAvatarTagsDialog" />
                 <SetAvatarStylesDialog v-model:setAvatarStylesDialog="setAvatarStylesDialog" />
                 <input
@@ -739,6 +746,7 @@
         selectAvatarWithoutConfirmation
     } from '../../../coordinators/avatarCoordinator';
     import { useAvatarDialogCommands } from './useAvatarDialogCommands';
+    import { platformCapabilities } from '../../../web/platform';
 
     import DialogJsonTab from '../DialogJsonTab.vue';
     import ImageCropDialog from '../ImageCropDialog.vue';
@@ -952,7 +960,7 @@
         avatarDialog.value.timeSpent = 0;
         memo.value = '';
         treeData.value = {};
-        getAvatarTimeSpent();
+        if (platformCapabilities.activityDetails) getAvatarTimeSpent();
         getAvatarMemo();
     }
 
@@ -998,6 +1006,7 @@
     });
 
     function onAvatarMemoChange() {
+        if (!platformCapabilities.vrchatMutations) return;
         if (memo.value) {
             database.setAvatarMemo({
                 avatarId: avatarDialog.value.id,
@@ -1096,6 +1105,7 @@
     }
 
     function displayAvatarGalleryUpload() {
+        if (!platformCapabilities.vrchatMutations || !isAvatarOwner.value) return;
         document.getElementById('AvatarGalleryUploadButton').click();
     }
 
@@ -1103,6 +1113,7 @@
      * @param e
      */
     function onFileChangeAvatarGallery(e) {
+        if (!platformCapabilities.vrchatMutations || !isAvatarOwner.value) return;
         const { file, clearInput } = handleImageUploadInput(e, {
             inputSelector: '#AvatarGalleryUploadButton',
             tooLargeMessage: () => t('message.file.too_large'),
@@ -1120,6 +1131,7 @@
      * @param {Blob} blob
      */
     async function onCropConfirmAvatarGallery(blob) {
+        if (!platformCapabilities.vrchatMutations || !isAvatarOwner.value) return;
         const avatarId = avatarDialog.value.id;
         avatarDialog.value.galleryLoading = true;
         const uploadPromise = (async () => {
@@ -1150,6 +1162,7 @@
      * @param {number} direction
      */
     async function moveGalleryImage(index, direction) {
+        if (!platformCapabilities.vrchatMutations || !isAvatarOwner.value) return;
         const avatarId = avatarDialog.value.id;
         const images = [...avatarDialog.value.galleryImages];
         const target = index + direction;
@@ -1175,6 +1188,7 @@
      * @param {{ id: string; url: string }} image
      */
     async function deleteGalleryImage(image) {
+        if (!platformCapabilities.vrchatMutations || !isAvatarOwner.value) return;
         const avatarId = avatarDialog.value.id;
         const { ok } = await modalStore.confirm({
             title: t('confirm.title'),

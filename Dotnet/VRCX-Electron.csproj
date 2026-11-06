@@ -83,7 +83,35 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="VRCX.Transport\VRCX.Transport.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Remove="obj\**" />
+    <Compile Remove="VRCX.Transport\**" />
+    <Content Remove="VRCX.Transport\**" />
+    <EmbeddedResource Remove="VRCX.Transport\**" />
+    <None Remove="VRCX.Transport\**" />
+    <Compile Remove="VRCX.Core\**" />
+    <Content Remove="VRCX.Core\**" />
+    <EmbeddedResource Remove="VRCX.Core\**" />
+    <None Remove="VRCX.Core\**" />
+    <Compile Remove="VRCX.Core.Tests\**" />
+    <Content Remove="VRCX.Core.Tests\**" />
+    <EmbeddedResource Remove="VRCX.Core.Tests\**" />
+    <None Remove="VRCX.Core.Tests\**" />
+    <Compile Remove="VRCX.Server\**" />
+    <Content Remove="VRCX.Server\**" />
+    <EmbeddedResource Remove="VRCX.Server\**" />
+    <None Remove="VRCX.Server\**" />
+    <Compile Remove="VRCX.Web.Auth\**" />
+    <Content Remove="VRCX.Web.Auth\**" />
+    <EmbeddedResource Remove="VRCX.Web.Auth\**" />
+    <None Remove="VRCX.Web.Auth\**" />
+    <Compile Remove="VRCX.Web.Server\**" />
+    <Content Remove="VRCX.Web.Server\**" />
+    <EmbeddedResource Remove="VRCX.Web.Server\**" />
+    <None Remove="VRCX.Web.Server\**" />
     <Compile Remove="obj\**" />
     <Content Remove="Cef\**" />
     <Compile Remove="Cef\**" />

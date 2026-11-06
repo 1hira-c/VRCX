@@ -55,9 +55,11 @@
         </SheetContent>
     </Sheet>
     <SendInviteResponseDialog
+        v-if="!isReadOnlyWeb"
         v-model:send-invite-response-dialog="sendInviteResponseDialog"
         v-model:sendInviteResponseDialogVisible="sendInviteResponseDialogVisible" />
     <SendInviteRequestResponseDialog
+        v-if="!isReadOnlyWeb"
         v-model:send-invite-response-dialog="sendInviteResponseDialog"
         v-model:sendInviteRequestResponseDialogVisible="sendInviteRequestResponseDialogVisible" />
 </template>
@@ -75,6 +77,7 @@
     import NotificationList from './NotificationList.vue';
     import SendInviteRequestResponseDialog from '../../Notifications/dialogs/SendInviteRequestResponseDialog.vue';
     import SendInviteResponseDialog from '../../Notifications/dialogs/SendInviteResponseDialog.vue';
+    import { isReadOnlyWeb } from '../../../web/platform';
 
     const { t } = useI18n();
     const router = useRouter();
@@ -121,6 +124,7 @@
     }
 
     function showSendInviteResponseDialog(invite) {
+        if (isReadOnlyWeb) return;
         sendInviteResponseDialog.value.invite = invite;
         sendInviteResponseDialog.value.messageSlot = {};
         refreshInviteMessageTableData('response');
@@ -129,6 +133,7 @@
     }
 
     function showSendInviteRequestResponseDialog(invite) {
+        if (isReadOnlyWeb) return;
         sendInviteResponseDialog.value.invite = invite;
         sendInviteResponseDialog.value.messageSlot = {};
         refreshInviteMessageTableData('requestResponse');

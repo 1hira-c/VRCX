@@ -5,6 +5,8 @@ import { toast } from 'vue-sonner';
 import { i18n } from '../plugins/i18n';
 import { request } from '../services/request';
 import { useInstanceStore } from '../stores';
+import { isWebPlatform } from '../web/platform';
+import { webApi } from '../web/api';
 
 const instanceReq = {
     getInstance(params: {
@@ -12,9 +14,10 @@ const instanceReq = {
         instanceId: string;
     }): Promise<{ json: Json<Instance>; ref: Json<Instance>; params: { worldId: string; instanceId: string } }> {
         const instanceStore = useInstanceStore();
-        return request(`instances/${params.worldId}:${params.instanceId}`, {
-            method: 'GET'
-        }).then((json) => {
+        const source = isWebPlatform
+            ? webApi.getWorldInstance(params.worldId, params.instanceId)
+            : request(`instances/${params.worldId}:${params.instanceId}`, { method: 'GET' });
+        return source.then((json) => {
             return {
                 json,
                 params,

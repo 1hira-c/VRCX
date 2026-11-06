@@ -14,6 +14,7 @@ import {
     statusClass,
     timeToText
 } from '../../shared/utils';
+import { isWebPlatform, platformCapabilities } from '../../web/platform';
 
 const { t } = i18n.global;
 
@@ -251,19 +252,25 @@ export const createColumns = ({
             meta: { label: () => t('table.friendList.bioLink') },
             cell: ({ row }) => (
                 <div class="flex items-center">
-                    {(friendProfiles.value.get(row.original?.id)?.bioLinks ?? []).filter(Boolean).map((link, index) => (
-                        <TooltipWrapper key={index} content={String(link)}>
-                            <img
-                                src={getFaviconUrl(link)}
-                                class="h-4 w-4 mr-1 align-middle cursor-pointer"
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    openExternalLink(link);
-                                }}
-                                loading="lazy"
-                            />
-                        </TooltipWrapper>
-                    ))}
+                    {(
+                        friendProfiles.value.get(row.original?.id)?.bioLinks ??
+                        (isWebPlatform ? row.original?.bioLinks : undefined) ??
+                        []
+                    )
+                        .filter(Boolean)
+                        .map((link, index) => (
+                            <TooltipWrapper key={index} content={String(link)}>
+                                <img
+                                    src={getFaviconUrl(link)}
+                                    class="h-4 w-4 mr-1 align-middle cursor-pointer"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        openExternalLink(link);
+                                    }}
+                                    loading="lazy"
+                                />
+                            </TooltipWrapper>
+                        ))}
                 </div>
             )
         },
@@ -408,5 +415,12 @@ export const createColumns = ({
         }
     );
 
-    return cols;
+    return cols.filter((column) => {
+        if (!platformCapabilities.vrchatMutations && ['bulkSelect', 'unfriend'].includes(column.id)) return false;
+        if (!platformCapabilities.userHistoryStats && ['joinCount', 'timeTogether', 'lastSeen'].includes(column.id)) {
+            return false;
+        }
+        if (!platformCapabilities.mutualConnections && column.id === 'mutualFriends') return false;
+        return true;
+    });
 };

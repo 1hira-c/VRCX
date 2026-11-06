@@ -24,6 +24,8 @@ import { syncWorldSearchIndex, removeWorldSearchIndex } from './searchIndexCoord
 import { useUiStore } from '../stores/ui';
 import { useUserStore } from '../stores/user';
 import { useWorldStore } from '../stores/world';
+import { getWebEntity } from '../web/entities';
+import { isWebPlatform, platformCapabilities } from '../web/platform';
 
 /**
  * @param {string} tag
@@ -57,7 +59,7 @@ export function showWorldDialog(tag, shortName = null, options = {}) {
         nextTick(() => (D.loading = false));
         return;
     }
-    if (L.instanceId) {
+    if (!isWebPlatform && L.instanceId) {
         instanceRequest.getInstance({
             worldId: L.worldId,
             instanceId: L.instanceId
@@ -95,24 +97,20 @@ export function showWorldDialog(tag, shortName = null, options = {}) {
             D.memo = memo.memo;
         }
     });
-    database.getLastVisit(D.id, currentWorldMatch).then((ref) => {
-        if (ref.worldId === D.id) {
-            D.lastVisit = ref.created_at;
-        }
-    });
-    database.getVisitCount(D.id).then((ref) => {
-        if (ref.worldId === D.id) {
-            D.visitCount = ref.visitCount;
-        }
-    });
-    database.getTimeSpentInWorld(D.id).then((ref) => {
-        if (ref.worldId === D.id) {
-            D.timeSpent = ref.timeSpent;
-        }
-    });
-    const loadWorldRequest = worldRequest.getWorld({
-        worldId: L.worldId
-    });
+    if (platformCapabilities.activityDetails) {
+        database.getLastVisit(D.id, currentWorldMatch).then((ref) => {
+            if (ref.worldId === D.id) D.lastVisit = ref.created_at;
+        });
+        database.getVisitCount(D.id).then((ref) => {
+            if (ref.worldId === D.id) D.visitCount = ref.visitCount;
+        });
+        database.getTimeSpentInWorld(D.id).then((ref) => {
+            if (ref.worldId === D.id) D.timeSpent = ref.timeSpent;
+        });
+    }
+    const loadWorldRequest = isWebPlatform
+        ? getWebEntity('world', L.worldId).then((json) => ({ json, ref: applyWorld(json) }))
+        : worldRequest.getWorld({ worldId: L.worldId });
     loadWorldRequest
         .catch((err) => {
             nextTick(() => (D.loading = false));
@@ -130,7 +128,7 @@ export function showWorldDialog(tag, shortName = null, options = {}) {
                     for (const instance of args.ref.slimInstances) {
                         const { instanceId } = instance;
                         const tag = `${D.id}:${instanceId}`;
-                        if (isRealInstance(tag)) {
+                        if (!isWebPlatform && isRealInstance(tag)) {
                             instanceRequest.getInstance({
                                 worldId: D.id,
                                 instanceId
@@ -150,16 +148,18 @@ export function showWorldDialog(tag, shortName = null, options = {}) {
                 D.isPC = isPC;
                 D.isQuest = isQuest;
                 D.isIos = isIos;
-                worldStore.updateVRChatWorldCache();
-                queryRequest
-                    .fetch('worldPersistData', {
-                        worldId: D.id
-                    })
-                    .then((args) => {
-                        if (args.params.worldId === worldStore.worldDialog.id && worldStore.worldDialog.visible) {
-                            worldStore.worldDialog.hasPersistData = args.json !== false;
-                        }
-                    });
+                if (!isWebPlatform) {
+                    worldStore.updateVRChatWorldCache();
+                    queryRequest
+                        .fetch('worldPersistData', {
+                            worldId: D.id
+                        })
+                        .then((args) => {
+                            if (args.params.worldId === worldStore.worldDialog.id && worldStore.worldDialog.visible) {
+                                worldStore.worldDialog.hasPersistData = args.json !== false;
+                            }
+                        });
+                }
             }
         });
 }
@@ -198,18 +198,18 @@ export function applyWorld(json) {
         worldDialog.focusViewDisabled = ref.tags?.includes('feature_focus_view_disabled');
         instanceStore.applyWorldDialogInstances();
         for (const room of worldDialog.rooms) {
-            if (isRealInstance(room.tag)) {
+            if (!isWebPlatform && isRealInstance(room.tag)) {
                 instanceRequest.getInstance({
                     worldId: worldDialog.id,
                     instanceId: room.id
                 });
             }
         }
-        if (Object.keys(worldDialog.fileAnalysis).length === 0) {
+        if (platformCapabilities.localGameIntegration && Object.keys(worldDialog.fileAnalysis).length === 0) {
             getBundleDateSize(ref);
         }
     }
-    if (favoriteStore.localWorldFavoritesList.includes(ref.id)) {
+    if (!isWebPlatform && favoriteStore.localWorldFavoritesList.includes(ref.id)) {
         // update db cache
         database.addWorldToCache(ref);
     }

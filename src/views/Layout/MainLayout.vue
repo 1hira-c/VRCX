@@ -1,5 +1,5 @@
 <template>
-    <template v-if="watchState.isLoggedIn">
+    <template v-if="layoutAvailable">
         <div class="flex flex-col flex-1 h-full min-h-0 min-w-0 overflow-hidden">
             <SidebarProvider
                 :open="sidebarOpen"
@@ -16,6 +16,12 @@
                     @pointerdown.prevent="startNavResize" />
 
                 <SidebarInset class="min-w-0 bg-sidebar">
+                    <header
+                        v-if="platformCapabilities.serverSession"
+                        class="flex md:hidden shrink-0 items-center gap-2 border-b px-2 py-1">
+                        <SidebarTrigger data-testid="web-mobile-navigation" />
+                        <span class="text-sm font-medium">VRCX</span>
+                    </header>
                     <ResizablePanelGroup
                         direction="horizontal"
                         auto-save-id="vrcx-main-layout-right-sidebar"
@@ -64,26 +70,28 @@
 
         <!-- ## Dialogs ## -->
         <MainDialogContainer />
-        <InviteGroupDialog />
-        <GroupEditDialog />
-        <GroupEventEditDialog />
         <FullscreenImagePreview />
-        <LaunchDialog />
-        <LaunchOptionsDialog />
-        <FriendImportDialog />
-        <WorldImportDialog />
-        <AvatarImportDialog />
-        <ChooseFavoriteGroupDialog />
-        <VRChatConfigDialog />
-        <PrimaryPasswordDialog />
-        <SendBoopDialog />
-        <InventoryBundleDialog />
-        <FreeStoreItemDialog />
-        <ModerationReportDialog />
-        <GlobalToolsDialogs />
-        <ChangelogDialog />
-        <WhatsNewDialog />
-        <SpotlightDialog />
+        <template v-if="platformCapabilities.desktopIntegration">
+            <InviteGroupDialog />
+            <GroupEditDialog />
+            <GroupEventEditDialog />
+            <LaunchDialog />
+            <LaunchOptionsDialog />
+            <FriendImportDialog />
+            <WorldImportDialog />
+            <AvatarImportDialog />
+            <ChooseFavoriteGroupDialog />
+            <VRChatConfigDialog />
+            <PrimaryPasswordDialog />
+            <SendBoopDialog />
+            <InventoryBundleDialog />
+            <FreeStoreItemDialog />
+            <ModerationReportDialog />
+            <GlobalToolsDialogs />
+            <ChangelogDialog />
+            <WhatsNewDialog />
+            <SpotlightDialog />
+        </template>
     </template>
 </template>
 
@@ -96,10 +104,12 @@
 
     import { Button } from '../../components/ui/button';
     import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '../../components/ui/resizable';
-    import { SidebarInset, SidebarProvider } from '../../components/ui/sidebar';
+    import { SidebarInset, SidebarProvider, SidebarTrigger } from '../../components/ui/sidebar';
     import { useAppearanceSettingsStore } from '../../stores';
     import { useMainLayoutResizable } from '../../composables/useMainLayoutResizable';
     import { watchState } from '../../services/watchState';
+    import { platformCapabilities } from '../../web/platform';
+    import { canBrowseWeb } from '../../web/session';
 
     import AvatarImportDialog from '../Favorites/dialogs/AvatarImportDialog.vue';
     import ChangelogDialog from '../Settings/dialogs/ChangelogDialog.vue';
@@ -133,6 +143,9 @@
     const { navWidth, isNavCollapsed } = storeToRefs(appearanceSettingsStore);
 
     const sidebarOpen = computed(() => !isNavCollapsed.value);
+    const layoutAvailable = computed(() =>
+        platformCapabilities.serverSession ? canBrowseWeb() : watchState.isLoggedIn
+    );
 
     const handleSidebarOpenChange = (open) => {
         appearanceSettingsStore.setNavCollapsed(!open);
@@ -217,9 +230,9 @@
     });
 
     watch(
-        () => watchState.isLoggedIn,
+        layoutAvailable,
         (isLoggedIn) => {
-            if (!isLoggedIn) {
+            if (!isLoggedIn && !platformCapabilities.serverSession) {
                 router.replace({ name: 'login' });
             }
         },

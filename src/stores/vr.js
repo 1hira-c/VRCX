@@ -14,6 +14,8 @@ import { useSharedFeedStore } from './sharedFeed';
 import { useUserStore } from './user';
 import { useWristOverlaySettingsStore } from './settings/wristOverlay';
 import { watchState } from '../services/watchState';
+import { runtimeCapabilities } from '../services/runtimeCapabilities';
+import { isWebPlatform } from '../web/platform.js';
 
 export const useVrStore = defineStore('Vr', () => {
     const friendStore = useFriendStore();
@@ -40,6 +42,7 @@ export const useVrStore = defineStore('Vr', () => {
 
     // also runs from CEF C# on overlay browser startup
     function vrInit() {
+        if (isWebPlatform || !runtimeCapabilities.vrOverlay) return;
         updateVRConfigVars();
         updateVRLastLocation();
         updateVrNowPlaying();
@@ -49,6 +52,7 @@ export const useVrStore = defineStore('Vr', () => {
     }
 
     async function saveOpenVROption() {
+        if (isWebPlatform || !runtimeCapabilities.vrOverlay) return;
         updateVRConfigVars();
         updateVRLastLocation();
         AppApi.ExecuteVrOverlayFunction('notyClear', '');
@@ -56,11 +60,13 @@ export const useVrStore = defineStore('Vr', () => {
     }
 
     function updateVrNowPlaying() {
+        if (isWebPlatform || !runtimeCapabilities.vrOverlay) return;
         const json = JSON.stringify(gameLogStore.nowPlaying);
         AppApi.ExecuteVrOverlayFunction('nowPlayingUpdate', json);
     }
 
     function updateVRLastLocation() {
+        if (isWebPlatform || !runtimeCapabilities.vrOverlay) return;
         let progressPie = false;
         if (advancedSettingsStore.progressPie) {
             progressPie = true;
@@ -88,6 +94,7 @@ export const useVrStore = defineStore('Vr', () => {
     }
 
     function updateVRConfigVars() {
+        if (isWebPlatform || !runtimeCapabilities.vrOverlay) return;
         let notificationTheme = 'relax';
         if (appearanceSettingsStore.isDarkMode) {
             notificationTheme = 'sunset';
@@ -135,6 +142,7 @@ export const useVrStore = defineStore('Vr', () => {
     }
 
     function updateOpenVR() {
+        if (isWebPlatform || !runtimeCapabilities.vrOverlay) return;
         let newState = {
             active: false,
             hmdOverlay: false,

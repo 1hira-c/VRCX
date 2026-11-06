@@ -14,6 +14,7 @@ import { useVrcxStore } from '../vrcx';
 import { watchState } from '../../services/watchState';
 
 import configRepository from '../../services/config';
+import { platformCapabilities } from '../../web/platform';
 import webApiService from '../../services/webapi';
 
 export const useAdvancedSettingsStore = defineStore('AdvancedSettings', () => {
@@ -641,6 +642,9 @@ export const useAdvancedSettingsStore = defineStore('AdvancedSettings', () => {
     }
 
     function handleSetAppLauncherSettings() {
+        if (!platformCapabilities.desktopIntegration) {
+            return;
+        }
         AppApi.SetAppLauncherSettings(
             enableAppLauncher.value,
             enableAppLauncherAutoClose.value,

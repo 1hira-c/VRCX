@@ -1,5 +1,10 @@
 <template>
     <div class="x-container x-container--auto-height" ref="gameLogRef">
+        <div
+            v-if="isWebPlatform"
+            class="mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            {{ t('web.history.game_log_pc_agent_notice') }}
+        </div>
         <template v-if="sessionsViewMode === 'sessions'">
             <GameLogSessions>
                 <template #leading>
@@ -146,6 +151,7 @@
     import { createColumns } from './columns.jsx';
     import { database } from '../../services/database';
     import { useVrcxVueTable } from '../../lib/table/useVrcxVueTable';
+    import { isReadOnlyWeb, isWebPlatform } from '../../web/platform';
     import GameLogSessions from './components/GameLogSessions.vue';
 
     const { gameLogTableLookup, setSessionsViewMode } = useGameLogStore();
@@ -178,6 +184,7 @@
      * @param row
      */
     function deleteGameLogEntryPrompt(row) {
+        if (isReadOnlyWeb) return;
         modalStore
             .confirm({
                 description: t('confirm.delete_log'),
@@ -191,6 +198,7 @@
      * @param row
      */
     function deleteGameLogEntry(row) {
+        if (isReadOnlyWeb) return;
         const index = gameLogTableData.value.findIndex((entry) => entry === row);
         if (index !== -1) {
             gameLogTableData.value = [

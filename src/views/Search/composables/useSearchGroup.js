@@ -4,6 +4,9 @@ import { storeToRefs } from 'pinia';
 import { useSearchStore } from '../../../stores';
 import { replaceBioSymbols } from '../../../shared/utils';
 import { groupRequest } from '../../../api';
+import { applyGroup } from '../../../coordinators/groupCoordinator';
+import { searchWebEntities } from '../../../web/entities';
+import { isWebPlatform } from '../../../web/platform';
 
 function createDefaultSearchGroupParams() {
     return {
@@ -44,19 +47,24 @@ export function useSearchGroup() {
             }
         }
         isSearchGroupLoading.value = true;
-        await groupRequest
-            .groupSearch(params)
-            .finally(() => {
-                isSearchGroupLoading.value = false;
-            })
-            .then((args) => {
-                const map = new Map();
-                for (const json of args.json) {
-                    map.set(json.id, json);
-                }
-                searchGroupResults.value = Array.from(map.values());
-                return args;
-            });
+        try {
+            const json = isWebPlatform
+                ? (
+                      await searchWebEntities('group', params.query, {
+                          offset: params.offset,
+                          limit: params.n
+                      })
+                  ).items
+                : (await groupRequest.groupSearch(params)).json;
+            const map = new Map();
+            for (const item of json) {
+                const ref = isWebPlatform ? applyGroup(item) : item;
+                map.set(ref.id, ref);
+            }
+            searchGroupResults.value = Array.from(map.values());
+        } finally {
+            isSearchGroupLoading.value = false;
+        }
     }
 
     function clearGroupSearch() {

@@ -5,7 +5,7 @@
             ref="mutualGraphRef">
             <div class="flex items-center w-full">
                 <div class="options-container flex items-center gap-3 bg-transparent pb-3 shadow-none">
-                    <div>
+                    <div v-if="platformCapabilities.mutualConnections">
                         <TooltipWrapper
                             v-if="isFetching"
                             :content="t('view.charts.mutual_friend.actions.stop_fetching')"
@@ -225,7 +225,7 @@
                     </Sheet>
 
                     <div
-                        v-if="isFetching"
+                        v-if="platformCapabilities.mutualConnections && isFetching"
                         class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] items-center rounded-md bg-transparent p-3 w-70">
                         <div class="flex justify-between text-sm mb-1">
                             <span class="mr-1">{{ t('view.charts.mutual_friend.progress.friends_processed') }}</span>
@@ -249,11 +249,13 @@
                         <UserIcon class="size-4" />
                         {{ t('view.charts.mutual_friend.context_menu.view_details') }}
                     </ContextMenuItem>
-                    <ContextMenuSeparator />
-                    <ContextMenuItem @click="handleNodeMenuRefresh">
-                        <RefreshCwIcon class="size-4" />
-                        {{ t('view.charts.mutual_friend.context_menu.refresh_mutuals') }}
-                    </ContextMenuItem>
+                    <template v-if="platformCapabilities.mutualConnections">
+                        <ContextMenuSeparator />
+                        <ContextMenuItem @click="handleNodeMenuRefresh">
+                            <RefreshCwIcon class="size-4" />
+                            {{ t('view.charts.mutual_friend.context_menu.refresh_mutuals') }}
+                        </ContextMenuItem>
+                    </template>
                     <ContextMenuSeparator />
                     <ContextMenuItem @click="handleNodeMenuHide">
                         <EyeOffIcon class="size-4" />
@@ -326,6 +328,7 @@
     import { showUserDialog } from '../../../coordinators/userCoordinator';
     import { database } from '../../../services/database';
     import { watchState } from '../../../services/watchState';
+    import { isWebPlatform, platformCapabilities } from '../../../web/platform';
 
     import configRepository from '../../../services/config';
 
@@ -587,7 +590,12 @@
     const isOptOut = computed(() => Boolean(currentUser.value?.hasSharedConnectionsOptOut));
     const graphReady = computed(() => graphNodeCount.value > 0);
     const fetchButtonDisabled = computed(
-        () => isFetching.value || isOptOut.value || totalFriends.value === 0 || isLoadingSnapshot.value
+        () =>
+            !platformCapabilities.mutualConnections ||
+            isFetching.value ||
+            isOptOut.value ||
+            totalFriends.value === 0 ||
+            isLoadingSnapshot.value
     );
     const fetchButtonLabel = computed(() =>
         hasFetched.value
@@ -1116,7 +1124,7 @@
     }
 
     async function loadGraphFromDatabase() {
-        if (!watchState.isLoggedIn || !currentUser.value?.id) return;
+        if ((!isWebPlatform && !watchState.isLoggedIn) || !currentUser.value?.id) return;
         if (!watchState.isFriendsLoaded) return;
         if (isFetching.value || isLoadingSnapshot.value) return;
         if (hasFetched.value && !status.needsRefetch && currentGraph) return;
@@ -1132,6 +1140,13 @@
             graphMeta.value = meta;
 
             if (!snapshot || snapshot.size === 0) {
+                if (!platformCapabilities.mutualConnections) {
+                    chartsStore.markMutualGraphLoaded({ notify: false });
+                    status.friendSignature = 0;
+                    status.needsRefetch = false;
+                    graphNodeCount.value = 0;
+                    return;
+                }
                 if (totalFriends.value === 0) {
                     showStatusMessage(t('view.charts.mutual_friend.status.no_friends_to_process'), 'info');
                     return;
@@ -1160,6 +1175,13 @@
             });
 
             if (!mutualMap.size) {
+                if (!platformCapabilities.mutualConnections) {
+                    chartsStore.markMutualGraphLoaded({ notify: false });
+                    status.friendSignature = 0;
+                    status.needsRefetch = false;
+                    graphNodeCount.value = 0;
+                    return;
+                }
                 await promptInitialFetch();
                 return;
             }
@@ -1167,7 +1189,7 @@
             await applyGraph(mutualMap);
             chartsStore.markMutualGraphLoaded({ notify: false });
             fetchState.processedFriends = Math.min(mutualMap.size, totalFriends.value || mutualMap.size);
-            status.friendSignature = totalFriends.value;
+            status.friendSignature = platformCapabilities.mutualConnections ? totalFriends.value : 0;
             status.needsRefetch = false;
         } catch (err) {
             console.error('[MutualNetworkGraph] Failed to load cached mutual graph', err);
@@ -1177,7 +1199,8 @@
     }
 
     async function promptInitialFetch() {
-        if (isFetching.value || hasFetched.value || !totalFriends.value) return;
+        if (!platformCapabilities.mutualConnections || isFetching.value || hasFetched.value || !totalFriends.value)
+            return;
 
         modalStore
             .confirm({
@@ -1193,6 +1216,7 @@
     }
 
     function promptEnableMutualFriendsSharing() {
+        if (!platformCapabilities.mutualConnections) return;
         modalStore
             .confirm({
                 description: t('view.charts.mutual_friend.enable_sharing_prompt.message'),
@@ -1209,7 +1233,7 @@
     }
 
     async function startFetch() {
-        if (isFetching.value || isOptOut.value) return;
+        if (!platformCapabilities.mutualConnections || isFetching.value || isOptOut.value) return;
         const mutualMap = await chartsStore.fetchMutualGraph();
         if (!mutualMap) return;
         try {
@@ -1220,6 +1244,7 @@
     }
 
     function cancelFetch() {
+        if (!platformCapabilities.mutualConnections) return;
         chartsStore.requestMutualGraphCancel();
     }
 
@@ -1246,6 +1271,7 @@
     }
 
     async function handleNodeMenuRefresh() {
+        if (!platformCapabilities.mutualConnections) return;
         const nodeId = contextMenuNodeId.value;
         contextMenuNodeId.value = null;
         if (!nodeId || isRefreshingNode.value) return;

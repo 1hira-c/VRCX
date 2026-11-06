@@ -3,7 +3,7 @@
         <div class="flex flex-col gap-0.5 text-base font-semibold pl-0.5 [&_small]:text-xs [&_small]:font-normal">
             <slot name="title" />
         </div>
-        <div class="flex items-center gap-2 text-[13px]">
+        <div v-if="!isReadOnlyWeb" class="flex items-center gap-2 text-[13px]">
             <span>{{ t('view.favorite.edit_mode') }}</span>
             <Switch
                 :model-value="editMode"
@@ -13,7 +13,7 @@
         </div>
     </div>
     <div class="flex items-center justify-end">
-        <div v-if="editModeVisible" class="flex flex-wrap gap-2 mb-3">
+        <div v-if="!isReadOnlyWeb && editModeVisible" class="flex flex-wrap gap-2 mb-3">
             <Button size="sm" variant="outline" @click="$emit('toggle-select-all')">
                 {{ isAllSelected ? t('view.favorite.deselect_all') : t('view.favorite.select_all') }}
             </Button>
@@ -39,6 +39,7 @@
     import { Button } from '@/components/ui/button';
     import { Switch } from '@/components/ui/switch';
     import { useI18n } from 'vue-i18n';
+    import { isReadOnlyWeb } from '../../../web/platform';
 
     defineProps({
         editMode: { type: Boolean, default: false },

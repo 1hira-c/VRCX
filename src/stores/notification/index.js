@@ -55,6 +55,8 @@ import { useUiStore } from '../ui';
 import { useUserStore } from '../user';
 import { useWristOverlaySettingsStore } from '../settings/wristOverlay';
 import { watchState } from '../../services/watchState';
+import { runtimeCapabilities } from '../../services/runtimeCapabilities';
+import { isWebPlatform } from '../../web/platform.js';
 
 import configRepository from '../../services/config';
 
@@ -272,6 +274,9 @@ export const useNotificationStore = defineStore('Notification', () => {
      * @param args
      */
     function handlePipelineNotification(args) {
+        if (!runtimeCapabilities.vrchatMutationAutomation) {
+            return;
+        }
         const ref = args.json;
         if (ref.type === 'friendRequest' && generalSettingsStore.autoDeclineFriendRequests) {
             handleAutoDeclineFriendRequest(ref);
@@ -785,6 +790,9 @@ export const useNotificationStore = defineStore('Notification', () => {
      * @param noty
      */
     function playNoty(noty) {
+        if (!runtimeCapabilities.desktopIntegration) {
+            return;
+        }
         if (userStore.currentUser.status === 'busy' || !watchState.isFriendsLoaded) {
             return;
         }
@@ -1089,13 +1097,15 @@ export const useNotificationStore = defineStore('Notification', () => {
 
     async function initNotifications() {
         notificationInitStatus.value = false;
-        let tableData = await database.getNotificationsV2();
+        let tableData = isWebPlatform ? [] : await database.getNotificationsV2();
         let notifications = await database.getNotifications();
         tableData = tableData.concat(notifications.filter((n) => !tableData.some((t) => t.id === n.id)));
         tableData.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
         tableData.splice(dbVars.maxTableSize);
         notificationTable.value.data = tableData;
-        refreshNotifications();
+        if (!isWebPlatform) {
+            refreshNotifications();
+        }
     }
 
     async function checkInventoryBundles() {

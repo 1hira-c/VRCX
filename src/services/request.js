@@ -6,6 +6,7 @@ import { AppDebug, isApiLogSuppressed, logWebRequest } from './appConfig.js';
 import { i18n } from '../plugins/i18n';
 import { statusCodes } from '../shared/constants/api.js';
 import { watchState } from './watchState';
+import { runtimeCapabilities } from './runtimeCapabilities';
 
 import webApiService from './webapi.js';
 
@@ -118,7 +119,15 @@ export function request(endpoint, options) {
             const parsed = parseResponse(response);
             if (!isApiLogSuppressed()) {
                 const tag = `[API ${init.method}]`;
-                if (!parsed.data) {
+                const isAuthenticationRequest =
+                    runtimeCapabilities.serverMode && (endpoint === 'auth' || endpoint.startsWith('auth/'));
+                if (isAuthenticationRequest) {
+                    // Authentication request bodies can contain passwords or 2FA codes and
+                    // auth responses can contain pipeline/session material. Keep the normal
+                    // request timing/status trace without ever handing those values to the
+                    // configurable web-request logger.
+                    logWebRequest(tag, endpoint, `(${parsed.status})`);
+                } else if (!parsed.data) {
                     logWebRequest(tag, endpoint, `(${parsed.status}) no data`);
                 } else if (init.method === 'PUT' || init.method === 'POST') {
                     logWebRequest(tag, endpoint, `(${parsed.status})`, init.params, parsed.data);

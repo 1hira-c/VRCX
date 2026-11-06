@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>VRCX.Transport</AssemblyName>
+    <RootNamespace>VRCX.Transport</RootNamespace>
+    <Platforms>x64;ARM64</Platforms>
+  </PropertyGroup>
+</Project>

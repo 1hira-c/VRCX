@@ -8,6 +8,8 @@
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
+const serverMode = process.argv.includes('--vrcx-server-mode');
+
 const managedListeners = new Map();
 
 function registerManagedListener(channel, callback, mapKey = channel) {
@@ -31,6 +33,20 @@ function registerManagedListener(channel, callback, mapKey = channel) {
 
 contextBridge.exposeInMainWorld('LINUX', true);
 contextBridge.exposeInMainWorld('WINDOWS', false);
+contextBridge.exposeInMainWorld(
+    'runtimeCapabilities',
+    Object.freeze({
+        serverMode,
+        desktopIntegration: !serverMode,
+        gameProcessMonitoring: !serverMode,
+        logWatcher: !serverMode,
+        vrOverlay: !serverMode,
+        discord: !serverMode,
+        selfUpdate: !serverMode,
+        vrchatMutationAutomation: !serverMode,
+        customRendererExtensions: !serverMode
+    })
+);
 
 contextBridge.exposeInMainWorld('interopApi', {
     callDotNetMethod: (className, methodName, args) => {
@@ -41,6 +57,20 @@ contextBridge.exposeInMainWorld('interopApi', {
 const validChannels = ['launch-command'];
 
 contextBridge.exposeInMainWorld('electron', {
+    onServerAuthControlRequest: (callback) => {
+        if (!serverMode) return () => {};
+        return registerManagedListener('server-auth-control:request', (_event, request) => callback(request));
+    },
+    respondServerAuthControl: (requestId, response) => {
+        if (serverMode) {
+            ipcRenderer.send('server-auth-control:response', requestId, response);
+        }
+    },
+    markServerAuthControlReady: () => {
+        if (serverMode) {
+            ipcRenderer.send('server-auth-control:ready');
+        }
+    },
     getArch: () => ipcRenderer.invoke('app:getArch'),
     getClipboardText: () => ipcRenderer.invoke('app:getClipboardText'),
     getNoUpdater: () => ipcRenderer.invoke('app:getNoUpdater'),

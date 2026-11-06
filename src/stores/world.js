@@ -4,6 +4,7 @@ import { defineStore } from 'pinia';
 import { checkVRChatCache, formatFileSize } from '../shared/utils';
 import { preloadOwnWorlds } from '../coordinators/worldCoordinator';
 import { watchState } from '../services/watchState';
+import { isWebPlatform } from '../web/platform.js';
 
 export const useWorldStore = defineStore('World', () => {
     const worldDialog = reactive({
@@ -41,7 +42,7 @@ export const useWorldStore = defineStore('World', () => {
         (isLoggedIn) => {
             worldDialog.visible = false;
             cachedWorlds.clear();
-            if (isLoggedIn) {
+            if (isLoggedIn && !isWebPlatform) {
                 preloadOwnWorlds();
             }
         },

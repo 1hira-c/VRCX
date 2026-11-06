@@ -13,8 +13,11 @@ const {
     nativeTheme
 } = require('electron');
 const { spawnSync } = require('child_process');
+const { randomUUID } = require('crypto');
+const { pathToFileURL } = require('url');
 const fs = require('fs');
 const os = require('os');
+const { createServerAuthControl } = require('./serverAuthControl');
 
 //app.disableHardwareAcceleration();
 
@@ -62,12 +65,21 @@ let trayIconNotify = null;
 // Get launch arguments
 let appImagePath = process.env.APPIMAGE;
 const args = process.argv.slice(1);
-const noInstall = args.includes('--no-install');
-const noDesktop = args.includes('--no-desktop');
+const serverMode = args.includes('--server-mode');
+if (serverMode) {
+    app.disableHardwareAcceleration();
+}
+const configDirectoryArg = args.find((arg) => arg.startsWith('--config='));
+const serverConfigDirectory = configDirectoryArg ? path.resolve(configDirectoryArg.slice('--config='.length)) : '';
+if (serverMode && !serverConfigDirectory) {
+    throw new Error('--server-mode requires an explicit --config=<server-data-directory>');
+}
+const noInstall = serverMode || args.includes('--no-install');
+const noDesktop = serverMode || args.includes('--no-desktop');
 const startup = args.includes('--startup');
 const debug = args.includes('--hot-reload');
-const noUpdater = args.includes('--no-updater') || fs.existsSync(path.join(rootDir, '.no-updater'));
-if (app.isPackaged && process.defaultApp && process.platform !== 'win32') {
+const noUpdater = serverMode || args.includes('--no-updater') || fs.existsSync(path.join(rootDir, '.no-updater'));
+if (!serverMode && app.isPackaged && process.defaultApp && process.platform !== 'win32') {
     if (process.argv.length >= 2) {
         app.setAsDefaultProtocolClient(VRCX_URI_PREFIX, process.execPath, [path.resolve(process.argv[1])]);
     } else {
@@ -77,7 +89,9 @@ if (app.isPackaged && process.defaultApp && process.platform !== 'win32') {
 
 const version = getVersion();
 const homePath = getHomePath();
-tryCopyFromWinePrefix();
+if (!serverMode) {
+    tryCopyFromWinePrefix();
+}
 const userDataPath = getElectronUserDataPath();
 console.log('Electron userData path:', userDataPath);
 if (!fs.existsSync(userDataPath)) {
@@ -131,19 +145,141 @@ interopApi.getDotNetObject('VRCXStorage').Load();
 interopApi.getDotNetObject('ProgramElectron').Init();
 interopApi.getDotNetObject('SQLite').Init();
 interopApi.getDotNetObject('AppApiElectron').Init();
-interopApi.getDotNetObject('Discord').Init();
+if (!serverMode) {
+    interopApi.getDotNetObject('Discord').Init();
+}
 interopApi.getDotNetObject('WebApi').Init();
-interopApi.getDotNetObject('LogWatcher').Init();
+if (!serverMode) {
+    interopApi.getDotNetObject('LogWatcher').Init();
+    interopApi.getDotNetObject('SystemMonitorElectron').Init();
+    interopApi.getDotNetObject('AppApiVrElectron').Init();
+}
 
-interopApi.getDotNetObject('SystemMonitorElectron').Init();
-interopApi.getDotNetObject('AppApiVrElectron').Init();
+let serverTerminationRequested = false;
+let serverDotNetShutdownStarted = false;
 
-ipcMain.handle('callDotNetMethod', (_event, className, methodName, args) => {
+function requestServerTermination() {
+    if (serverTerminationRequested) {
+        return;
+    }
+    serverTerminationRequested = true;
+    app.quit();
+}
+
+function shutdownServerDotNet() {
+    if (!serverMode || serverDotNetShutdownStarted) {
+        return;
+    }
+    serverDotNetShutdownStarted = true;
+    try {
+        interopApi.getDotNetObject('ProgramElectron').Exit();
+    } catch {
+        // Do not include exception details here: cookie persistence and storage
+        // failures can contain values that must not reach container logs.
+        console.error('Failed to close hidden VRCX worker state cleanly.');
+    }
+}
+
+if (serverMode) {
+    process.on('SIGTERM', requestServerTermination);
+    process.on('SIGINT', requestServerTermination);
+}
+
+ipcMain.handle('callDotNetMethod', (event, className, methodName, args) => {
+    if (serverMode && !isMainRendererEvent(event)) {
+        throw new Error('Untrusted renderer IPC request');
+    }
     return interopApi.callMethod(className, methodName, args);
 });
 
 /** @type {Electron.CrossProcessExports.BrowserWindow} */
 let mainWindow = undefined;
+let serverAuthControl = null;
+let serverAuthRendererReady = false;
+const pendingServerAuthRequests = new Map();
+
+function createRendererControlError(code) {
+    return Object.assign(new Error(code), { code });
+}
+
+function rejectPendingServerAuthRequests(code) {
+    for (const { reject, timeout } of pendingServerAuthRequests.values()) {
+        clearTimeout(timeout);
+        reject(createRendererControlError(code));
+    }
+    pendingServerAuthRequests.clear();
+}
+
+function markServerAuthRendererUnavailable() {
+    serverAuthRendererReady = false;
+    rejectPendingServerAuthRequests('renderer_unavailable');
+}
+
+function dispatchServerAuthRequest(request) {
+    if (!serverAuthRendererReady || !mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+        return Promise.reject(createRendererControlError('renderer_unavailable'));
+    }
+
+    const requestId = randomUUID();
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            pendingServerAuthRequests.delete(requestId);
+            reject(createRendererControlError('renderer_timeout'));
+        }, 30_000);
+        pendingServerAuthRequests.set(requestId, { resolve, reject, timeout });
+        try {
+            mainWindow.webContents.send('server-auth-control:request', {
+                requestId,
+                operation: request.operation,
+                payload: request.payload
+            });
+        } catch {
+            clearTimeout(timeout);
+            pendingServerAuthRequests.delete(requestId);
+            reject(createRendererControlError('renderer_unavailable'));
+        }
+    });
+}
+
+function isMainRendererEvent(event) {
+    return serverMode && mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents;
+}
+
+ipcMain.on('server-auth-control:ready', (event) => {
+    if (isMainRendererEvent(event)) {
+        serverAuthRendererReady = true;
+    }
+});
+
+ipcMain.on('server-auth-control:response', (event, requestId, response) => {
+    if (!isMainRendererEvent(event) || typeof requestId !== 'string') {
+        return;
+    }
+    const pending = pendingServerAuthRequests.get(requestId);
+    if (!pending) {
+        return;
+    }
+    pendingServerAuthRequests.delete(requestId);
+    clearTimeout(pending.timeout);
+    pending.resolve(response);
+});
+
+async function startServerAuthControl() {
+    if (!serverMode || serverAuthControl) {
+        return;
+    }
+    serverAuthControl = createServerAuthControl({
+        isRendererReady: () => serverAuthRendererReady,
+        dispatch: dispatchServerAuthRequest
+    });
+    try {
+        await serverAuthControl.listen();
+        console.log('Server auth control listening on 127.0.0.1:18081');
+    } catch (error) {
+        console.error('Failed to start server auth control:', error?.code || 'unknown_error');
+        app.exit(1);
+    }
+}
 
 const VRCXStorage = interopApi.getDotNetObject('VRCXStorage');
 const hasAskedToMoveAppImage = VRCXStorage.Get('VRCX_HasAskedToMoveAppImage') === 'true';
@@ -183,6 +319,9 @@ if (!gotTheLock) {
 }
 
 ipcMain.handle('dialog:openFile', async () => {
+    if (serverMode) {
+        return null;
+    }
     const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openFile'],
         filters: [{ name: 'Images', extensions: ['png'] }]
@@ -195,6 +334,9 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:openDirectory', async () => {
+    if (serverMode) {
+        return null;
+    }
     const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory']
     });
@@ -206,6 +348,9 @@ ipcMain.handle('dialog:openDirectory', async () => {
 });
 
 ipcMain.handle('notification:showNotification', (_event, title, body, icon) => {
+    if (serverMode) {
+        return;
+    }
     if (activeNotification) {
         activeNotification.close();
     }
@@ -226,6 +371,9 @@ ipcMain.handle('notification:showNotification', (_event, title, body, icon) => {
 });
 
 ipcMain.handle('app:restart', () => {
+    if (serverMode) {
+        return;
+    }
     if (process.platform === 'linux') {
         const options = {
             execPath: process.execPath,
@@ -251,6 +399,9 @@ ipcMain.handle('app:getOverlayWindow', () => {
 });
 
 ipcMain.handle('app:updateVr', (_event, active, hmdOverlay, wristOverlay, _menuButton, _overlayHand) => {
+    if (serverMode) {
+        return;
+    }
     if (!active || (!hmdOverlay && !wristOverlay)) {
         disposeOverlay();
         return;
@@ -268,6 +419,9 @@ ipcMain.handle('app:getArch', () => {
     return process.arch.toString();
 });
 ipcMain.handle('app:getClipboardText', () => {
+    if (serverMode) {
+        return '';
+    }
     return clipboard.readText();
 });
 
@@ -302,7 +456,9 @@ function createWindow() {
         console.log('Main window already exists.');
     }
 
-    app.commandLine.appendSwitch('enable-speech-dispatcher');
+    if (!serverMode) {
+        app.commandLine.appendSwitch('enable-speech-dispatcher');
+    }
 
     const x = parseInt(VRCXStorage.Get('VRCX_LocationX')) || 0;
     const y = parseInt(VRCXStorage.Get('VRCX_LocationY')) || 0;
@@ -317,16 +473,51 @@ function createWindow() {
         icon: path.join(rootDir, 'images/VRCX.png'),
         autoHideMenuBar: true,
         titleBarStyle: 'hiddenInset',
+        show: !serverMode,
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js')
+            preload: path.join(__dirname, 'preload.js'),
+            backgroundThrottling: !serverMode,
+            additionalArguments: serverMode ? ['--vrcx-server-mode'] : []
         }
     });
-    applyWindowState();
+    if (serverMode) {
+        mainWindow.webContents.on('did-start-loading', markServerAuthRendererUnavailable);
+        mainWindow.webContents.on('render-process-gone', markServerAuthRendererUnavailable);
+        mainWindow.webContents.once('destroyed', markServerAuthRendererUnavailable);
+        mainWindow.once('closed', () => {
+            markServerAuthRendererUnavailable();
+            mainWindow = undefined;
+        });
+    }
+    if (!serverMode) {
+        applyWindowState();
+    }
     const indexPath = path.join(rootDir, 'build/html/index.html');
+    if (serverMode) {
+        const allowedRendererUrl = pathToFileURL(indexPath);
+        mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+            try {
+                const target = new URL(targetUrl);
+                if (
+                    target.protocol === allowedRendererUrl.protocol &&
+                    target.host === allowedRendererUrl.host &&
+                    target.pathname === allowedRendererUrl.pathname
+                ) {
+                    return;
+                }
+            } catch {
+                // Reject malformed navigation targets below.
+            }
+            event.preventDefault();
+        });
+        mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    }
     mainWindow.loadFile(indexPath);
     if (debug) {
         mainWindow.loadURL('http://localhost:9000/index.html');
-        mainWindow.webContents.openDevTools();
+        if (!serverMode) {
+            mainWindow.webContents.openDevTools();
+        }
     }
 
     // add proxy config, doesn't work, thanks electron
@@ -685,6 +876,9 @@ function updateDesktopFile() {
 }
 
 function getElectronUserDataPath() {
+    if (serverMode && serverConfigDirectory) {
+        return path.join(serverConfigDirectory, 'ElectronUserData');
+    }
     const electronUserData = 'ElectronUserData';
     if (process.platform === 'win32') {
         return path.join(getVRCXPath(), electronUserData);
@@ -824,14 +1018,19 @@ function applyWindowState() {
 
 app.whenReady().then(() => {
     createWindow();
-    createTray();
-    installVRCX();
+    if (serverMode) {
+        void startServerAuthControl();
+    }
+    if (!serverMode) {
+        createTray();
+        installVRCX();
+    }
 
     // only initialise when the app is ready otherwise it could get called early and crash the app
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) {
             createWindow();
-        } else {
+        } else if (!serverMode) {
             // Ensure main window shows when clicking Dock icon (critical for macOS)
             if (mainWindow && !mainWindow.isVisible()) {
                 mainWindow.show();
@@ -864,8 +1063,14 @@ app.on('before-quit', function () {
 
     // Mark it as a quitting state to make macOS Dock's "Quit" action take effect.
     appIsQuitting = true;
+    markServerAuthRendererUnavailable();
+    if (serverAuthControl) {
+        void serverAuthControl.close();
+        serverAuthControl = null;
+    }
     disposeOverlay();
     destroyTray();
+    shutdownServerDotNet();
 
     app.exit(0);
 });

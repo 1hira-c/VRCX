@@ -20,6 +20,7 @@ import {
 import { showUserDialog } from '../../coordinators/userCoordinator';
 import { showWorldDialog } from '../../coordinators/worldCoordinator';
 import { showGroupDialog } from '../../coordinators/groupCoordinator';
+import { platformCapabilities } from '../../web/platform';
 
 import Emoji from '../../components/Emoji.vue';
 
@@ -86,7 +87,7 @@ export const createColumns = ({
         }
     };
 
-    return [
+    const columns = [
         {
             id: 'spacer',
             header: () => null,
@@ -665,4 +666,5 @@ export const createColumns = ({
             cell: () => null
         }
     ];
+    return platformCapabilities.vrchatMutations ? columns : columns.filter((column) => column.id !== 'action');
 };

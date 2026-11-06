@@ -11,8 +11,12 @@
                     <TabsTrigger value="world">{{ t('view.search.world.header') }}</TabsTrigger>
                     <TabsTrigger value="avatar">{{ t('view.search.avatar.header') }}</TabsTrigger>
                     <TabsTrigger value="group">{{ t('view.search.group.header') }}</TabsTrigger>
-                    <TabsTrigger value="marketplace">{{ t('view.search.marketplace.header') }}</TabsTrigger>
-                    <TabsTrigger value="store">{{ t('view.search.store.header') }}</TabsTrigger>
+                    <TabsTrigger v-if="platformCapabilities.marketplace" value="marketplace">{{
+                        t('view.search.marketplace.header')
+                    }}</TabsTrigger>
+                    <TabsTrigger v-if="platformCapabilities.store" value="store">{{
+                        t('view.search.store.header')
+                    }}</TabsTrigger>
                 </TabsList>
                 <div class="flex min-w-0 flex-1 items-center">
                     <InputGroupField
@@ -102,7 +106,9 @@
             </TabsContent>
             <TabsContent value="world" class="flex flex-col min-h-0 flex-1">
                 <div class="flex flex-col min-h-0" style="flex: 9">
-                    <div class="inline-flex justify-end mb-4 w-full shrink-0 gap-2">
+                    <div
+                        v-if="!platformCapabilities.serverSession"
+                        class="inline-flex justify-end mb-4 w-full shrink-0 gap-2">
                         <label class="inline-flex items-center gap-2">
                             <Checkbox v-model="searchWorldLabs" />
                             <span>{{ t('view.search.world.community_lab') }}</span>
@@ -176,7 +182,9 @@
             </TabsContent>
             <TabsContent value="avatar" class="flex flex-col min-h-0 flex-1">
                 <div class="flex flex-col min-h-0" style="flex: 9">
-                    <div class="shrink-0 mb-3 flex items-center justify-end gap-2">
+                    <div
+                        v-if="!platformCapabilities.serverSession"
+                        class="shrink-0 mb-3 flex items-center justify-end gap-2">
                         <Select
                             v-if="avatarRemoteDatabaseProviderList.length > 0"
                             :model-value="avatarRemoteDatabaseProvider"
@@ -254,7 +262,10 @@
                     @prev="paginationConfig.onPrev"
                     @next="paginationConfig.onNext" />
             </TabsContent>
-            <TabsContent value="marketplace" class="flex flex-col min-h-0 flex-1">
+            <TabsContent
+                v-if="platformCapabilities.marketplace"
+                value="marketplace"
+                class="flex flex-col min-h-0 flex-1">
                 <div class="flex-1 overflow-y-auto min-h-0" style="flex: 9">
                     <div v-if="isSearchMarketplaceLoading" class="flex items-center justify-center h-full">
                         <Spinner class="text-2xl" />
@@ -302,7 +313,7 @@
                     @prev="paginationConfig.onPrev"
                     @next="paginationConfig.onNext" />
             </TabsContent>
-            <TabsContent value="store" class="flex flex-col min-h-0 flex-1">
+            <TabsContent v-if="platformCapabilities.store" value="store" class="flex flex-col min-h-0 flex-1">
                 <div class="shrink-0 mb-3 flex items-center justify-end gap-2">
                     <span v-if="currentUserCredits !== null" class="text-sm text-muted-foreground">
                         {{ t('view.search.store.credits', { credits: commaNumber(currentUserCredits) }) }}
@@ -433,7 +444,9 @@
                     @next="paginationConfig.onNext" />
             </TabsContent>
         </Tabs>
-        <AvatarProviderDialog v-model:isAvatarProviderDialogVisible="isAvatarProviderDialogVisible" />
+        <AvatarProviderDialog
+            v-if="!platformCapabilities.serverSession"
+            v-model:isAvatarProviderDialogVisible="isAvatarProviderDialogVisible" />
     </div>
 </template>
 
@@ -488,6 +501,7 @@
     import { useSearchGroup } from './composables/useSearchGroup';
     import { useSearchMarketplace } from './composables/useSearchMarketplace';
     import { useSearchStoreShelves } from './composables/useSearchStoreShelves';
+    import { platformCapabilities } from '../../web/platform';
 
     const { randomUserColours } = storeToRefs(useAppearanceSettingsStore());
     const { avatarRemoteDatabaseProviderList, avatarRemoteDatabaseProvider, isAvatarProviderDialogVisible } =
@@ -590,13 +604,13 @@
     } = useSearchStoreShelves();
 
     watch(activeSearchTab, (tab) => {
-        if (tab === 'store') {
+        if (platformCapabilities.store && tab === 'store') {
             getStoreShelves();
         }
     });
 
     onActivated(() => {
-        if (activeSearchTab.value === 'store') {
+        if (platformCapabilities.store && activeSearchTab.value === 'store') {
             getStoreShelves();
         }
     });

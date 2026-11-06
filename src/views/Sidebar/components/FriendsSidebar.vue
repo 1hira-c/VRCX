@@ -74,7 +74,7 @@
                                             </div>
                                         </div>
                                     </ContextMenuTrigger>
-                                    <ContextMenuContent>
+                                    <ContextMenuContent v-if="platformCapabilities.vrchatMutations">
                                         <ContextMenuSub>
                                             <ContextMenuSubTrigger>
                                                 {{ t('dialog.user.actions.edit_status') }}
@@ -153,9 +153,16 @@
                                             :is-group-by-instance="item.row.isGroupByInstance"
                                             :is-favorite="selectedFavoriteGroupIds.has(item.row.friend.id)" />
                                     </ContextMenuTrigger>
-                                    <ContextMenuContent>
+                                    <ContextMenuContent
+                                        v-if="
+                                            platformCapabilities.vrchatMutations ||
+                                            platformCapabilities.localGameIntegration
+                                        ">
                                         <ContextMenuItem
-                                            v-if="item.row.friend.state === 'online'"
+                                            v-if="
+                                                platformCapabilities.vrchatMutations &&
+                                                item.row.friend.state === 'online'
+                                            "
                                             @click="friendRequestInvite(item.row.friend)">
                                             {{ t('dialog.user.actions.request_invite') }}
                                             <ContextMenuShortcut
@@ -164,7 +171,7 @@
                                             </ContextMenuShortcut>
                                         </ContextMenuItem>
                                         <ContextMenuItem
-                                            v-if="isGameRunning"
+                                            v-if="platformCapabilities.vrchatMutations && isGameRunning"
                                             :disabled="!canInviteToMyLocation"
                                             @click="friendInvite(item.row.friend)">
                                             {{ t('dialog.user.actions.invite') }}
@@ -173,17 +180,22 @@
                                             </ContextMenuShortcut>
                                         </ContextMenuItem>
                                         <ContextMenuItem
+                                            v-if="platformCapabilities.vrchatMutations"
                                             :disabled="!currentUser.isBoopingEnabled"
                                             @click="friendSendBoop(item.row.friend)">
                                             {{ t('dialog.user.actions.send_boop') }}
                                         </ContextMenuItem>
                                         <ContextMenuSeparator
                                             v-if="
-                                                item.row.friend.state === 'online' && hasFriendLocation(item.row.friend)
+                                                platformCapabilities.localGameIntegration &&
+                                                item.row.friend.state === 'online' &&
+                                                hasFriendLocation(item.row.friend)
                                             " />
                                         <ContextMenuItem
                                             v-if="
-                                                item.row.friend.state === 'online' && hasFriendLocation(item.row.friend)
+                                                platformCapabilities.localGameIntegration &&
+                                                item.row.friend.state === 'online' &&
+                                                hasFriendLocation(item.row.friend)
                                             "
                                             :disabled="!canJoinFriend(item.row.friend)"
                                             @click="friendJoin(item.row.friend)">
@@ -191,7 +203,9 @@
                                         </ContextMenuItem>
                                         <ContextMenuItem
                                             v-if="
-                                                item.row.friend.state === 'online' && hasFriendLocation(item.row.friend)
+                                                platformCapabilities.vrchatMutations &&
+                                                item.row.friend.state === 'online' &&
+                                                hasFriendLocation(item.row.friend)
                                             "
                                             :disabled="!canJoinFriend(item.row.friend)"
                                             @click="friendInviteSelf(item.row.friend)">
@@ -206,7 +220,7 @@
             </div>
         </div>
         <BackToTop :virtualizer="virtualizer" :target="scrollViewportRef" :tooltip="false" />
-        <EditProfileDialog :edit-profile-dialog="editProfileDialog" />
+        <EditProfileDialog v-if="platformCapabilities.vrchatMutations" :edit-profile-dialog="editProfileDialog" />
     </div>
 </template>
 
@@ -260,6 +274,7 @@
 
     import '@/styles/status-icon.css';
     import { showUserDialog } from '../../../coordinators/userCoordinator';
+    import { platformCapabilities } from '../../../web/platform';
 
     const { t } = useI18n();
 

@@ -8,35 +8,37 @@
                 <ExternalLink class="size-4" />
                 {{ t('common.actions.view_details') }}
             </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem v-if="isOnline" @click="handleRequestInvite">
-                <Mail class="size-4" />
-                {{ t('dialog.user.actions.request_invite') }}
-                <ContextMenuShortcut v-if="showRecentRequestInvite">
-                    <Clock class="size-3.5 text-muted-foreground" />
-                </ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuItem v-if="isGameRunning" :disabled="!canInviteToMyLocation" @click="handleInvite">
-                <MessageSquare class="size-4" />
-                {{ t('dialog.user.actions.invite') }}
-                <ContextMenuShortcut v-if="showRecentInvite">
-                    <Clock class="size-3.5 text-muted-foreground" />
-                </ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuItem :disabled="!currentUser?.isBoopingEnabled" @click="handleSendBoop">
-                <Hand class="size-4" />
-                {{ t('dialog.user.actions.send_boop') }}
-            </ContextMenuItem>
-            <ContextMenuSeparator v-if="isOnline && hasLocation" />
-            <ContextMenuItem v-if="isOnline && hasLocation" :disabled="!canJoin" @click="handleJoin">
-                <LogIn class="size-4" />
-                {{ t('dialog.user.info.launch_invite_tooltip') }}
-            </ContextMenuItem>
-            <ContextMenuItem v-if="isOnline && hasLocation" :disabled="!canJoin" @click="handleSelfInvite">
-                <Mail class="size-4" />
-                {{ t('dialog.user.info.self_invite_tooltip') }}
-            </ContextMenuItem>
-            <slot name="append" />
+            <template v-if="platformCapabilities.vrchatMutations">
+                <ContextMenuSeparator />
+                <ContextMenuItem v-if="isOnline" @click="handleRequestInvite">
+                    <Mail class="size-4" />
+                    {{ t('dialog.user.actions.request_invite') }}
+                    <ContextMenuShortcut v-if="showRecentRequestInvite">
+                        <Clock class="size-3.5 text-muted-foreground" />
+                    </ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem v-if="isGameRunning" :disabled="!canInviteToMyLocation" @click="handleInvite">
+                    <MessageSquare class="size-4" />
+                    {{ t('dialog.user.actions.invite') }}
+                    <ContextMenuShortcut v-if="showRecentInvite">
+                        <Clock class="size-3.5 text-muted-foreground" />
+                    </ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem :disabled="!currentUser?.isBoopingEnabled" @click="handleSendBoop">
+                    <Hand class="size-4" />
+                    {{ t('dialog.user.actions.send_boop') }}
+                </ContextMenuItem>
+                <ContextMenuSeparator v-if="isOnline && hasLocation" />
+                <ContextMenuItem v-if="isOnline && hasLocation" :disabled="!canJoin" @click="handleJoin">
+                    <LogIn class="size-4" />
+                    {{ t('dialog.user.info.launch_invite_tooltip') }}
+                </ContextMenuItem>
+                <ContextMenuItem v-if="isOnline && hasLocation" :disabled="!canJoin" @click="handleSelfInvite">
+                    <Mail class="size-4" />
+                    {{ t('dialog.user.info.self_invite_tooltip') }}
+                </ContextMenuItem>
+                <slot name="append" />
+            </template>
         </ContextMenuContent>
     </ContextMenu>
 </template>
@@ -63,6 +65,7 @@
     import { isActionRecent, recordRecentAction } from '../composables/useRecentActions';
 
     import { showUserDialog } from '../coordinators/userCoordinator';
+    import { platformCapabilities } from '../web/platform';
 
     const { t } = useI18n();
     const { showSendBoopDialog } = useUserStore();

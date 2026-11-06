@@ -17,6 +17,7 @@ import { i18n } from '../../plugins';
 import { useInstanceStore, useUiStore } from '../../stores';
 import { lookupUser } from '../../coordinators/userCoordinator';
 import { showWorldDialog } from '../../coordinators/worldCoordinator';
+import { platformCapabilities } from '../../web/platform';
 
 const { t } = i18n.global;
 
@@ -26,7 +27,7 @@ export const createColumns = ({ getCreatedAt, onDelete, onDeletePrompt }) => {
     const { showPreviousInstancesInfoDialog } = useInstanceStore();
     const { shiftHeld } = storeToRefs(useUiStore());
 
-    return [
+    const columns = [
         {
             id: 'spacer',
             header: () => null,
@@ -305,4 +306,7 @@ export const createColumns = ({ getCreatedAt, onDelete, onDeletePrompt }) => {
             }
         }
     ];
+    return platformCapabilities.vrchatMutations || platformCapabilities.activityDetails
+        ? columns
+        : columns.filter((column) => column.id !== 'action');
 };

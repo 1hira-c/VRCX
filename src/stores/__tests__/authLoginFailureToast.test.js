@@ -341,6 +341,21 @@ describe('useAuthStore login failure toast policy', () => {
         expect(mocks.toast.warning).not.toHaveBeenCalled();
     });
 
+    test('percent-encodes both credential components before building Basic authorization', async () => {
+        const store = await createAuthStore();
+        store.loginForm.username = 'tester+web@example.com';
+        store.loginForm.password = 'p@ss word:/?';
+
+        await store.login();
+
+        expect(mocks.request).toHaveBeenCalledWith('auth/user', {
+            method: 'GET',
+            headers: {
+                Authorization: 'Basic dGVzdGVyJTJCd2ViJTQwZXhhbXBsZS5jb206cCU0MHNzJTIwd29yZCUzQSUyRiUzRg=='
+            }
+        });
+    });
+
     test('does not trigger the warning during auto-login retries', async () => {
         const store = await createAuthStore();
         store.setAttemptingAutoLogin(true);

@@ -11,6 +11,8 @@ import {
 } from '../../constants';
 import { i18n } from '../../../plugins/i18n';
 import { router } from '../../../plugins/router';
+import { runtimeCapabilities } from '../../../services/runtimeCapabilities.js';
+import { isWebPlatform } from '../../../web/platform.js';
 import { textToHex } from './string';
 
 import configRepository from '../../../services/config.js';
@@ -270,12 +272,14 @@ function changeAppThemeStyle(themeMode) {
     } else {
         document.documentElement.classList.remove('dark');
     }
-    if (themeConfig.name === 'Midnight') {
-        AppApi.ChangeTheme(2);
-    } else if (themeConfig.isDark) {
-        AppApi.ChangeTheme(1);
-    } else {
-        AppApi.ChangeTheme(0);
+    if (!isWebPlatform && runtimeCapabilities.desktopIntegration) {
+        if (themeConfig.name === 'Midnight') {
+            AppApi.ChangeTheme(2);
+        } else if (themeConfig.isDark) {
+            AppApi.ChangeTheme(1);
+        } else {
+            AppApi.ChangeTheme(0);
+        }
     }
 
     if (LINUX) {
@@ -324,6 +328,9 @@ async function refreshCustomCss() {
     if (document.contains(document.getElementById('app-custom-style'))) {
         document.getElementById('app-custom-style').remove();
     }
+    if (isWebPlatform || !runtimeCapabilities.customRendererExtensions) {
+        return;
+    }
     const customCss = await AppApi.CustomCss();
     if (customCss) {
         const head = document.head;
@@ -339,6 +346,9 @@ async function refreshCustomCss() {
 async function refreshCustomScript() {
     if (document.contains(document.getElementById('app-custom-script'))) {
         document.getElementById('app-custom-script').remove();
+    }
+    if (isWebPlatform || !runtimeCapabilities.customRendererExtensions) {
+        return;
     }
     const customScript = await AppApi.CustomScript();
     if (customScript) {

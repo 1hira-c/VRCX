@@ -94,6 +94,7 @@ function getAssetFilename({ name }) {
  * @returns {import('vite').UserConfig}
  */
 export default defineConfig(({ mode }) => {
+    const webOnly = mode === 'web';
     const { SENTRY_AUTH_TOKEN: sentryAuthToken } = loadEnv(mode, process.cwd(), '');
 
     const buildAndUploadSourceMaps = !!sentryAuthToken;
@@ -104,7 +105,7 @@ export default defineConfig(({ mode }) => {
 
     /** @type {import('vite').UserConfig} */
     return {
-        base: '',
+        base: webOnly ? '/' : '',
         plugins: [
             remixiconWoff2Only(),
             vue(),
@@ -159,7 +160,13 @@ export default defineConfig(({ mode }) => {
         },
         define: {
             VERSION: JSON.stringify(version),
-            NIGHTLY: JSON.stringify(nightly)
+            NIGHTLY: JSON.stringify(nightly),
+            ...(webOnly
+                ? {
+                      WINDOWS: 'false',
+                      LINUX: 'false'
+                  }
+                : {})
         },
         server: {
             port: 9000,
@@ -181,10 +188,12 @@ export default defineConfig(({ mode }) => {
             },
             rolldownOptions: {
                 preserveEntrySignatures: false,
-                input: {
-                    index: resolve(import.meta.dirname, './index.html'),
-                    vr: resolve(import.meta.dirname, './vr.html')
-                },
+                input: webOnly
+                    ? { web: resolve(import.meta.dirname, './web.html') }
+                    : {
+                          index: resolve(import.meta.dirname, './index.html'),
+                          vr: resolve(import.meta.dirname, './vr.html')
+                      },
                 output: {
                     assetFileNames: getAssetFilename,
                     manualChunks: getManualChunk

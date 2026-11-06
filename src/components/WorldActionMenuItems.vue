@@ -3,16 +3,22 @@
         <ExternalLink class="size-4" />
         {{ t('common.actions.view_details') }}
     </component>
-    <component :is="itemComponent" v-if="showShare" @click="$emit('share')">
+    <component :is="itemComponent" v-if="platformCapabilities.vrchatMutations && showShare" @click="$emit('share')">
         <Share2 class="size-4" />
         {{ t('dialog.world.actions.share') }}
     </component>
     <component :is="separatorComponent" v-if="showPrimarySeparator" />
-    <component :is="itemComponent" v-if="showNewInstance" @click="$emit('new-instance')">
+    <component
+        :is="itemComponent"
+        v-if="platformCapabilities.localGameIntegration && showNewInstance"
+        @click="$emit('new-instance')">
         <Flag class="size-4" />
         {{ t('dialog.world.actions.new_instance') }}
     </component>
-    <component :is="itemComponent" v-if="showSelfInvite" @click="$emit('self-invite')">
+    <component
+        :is="itemComponent"
+        v-if="platformCapabilities.vrchatMutations && showSelfInvite"
+        @click="$emit('self-invite')">
         <MessageSquare class="size-4" />
         {{ selfInviteLabel }}
     </component>
@@ -21,7 +27,7 @@
         <LineChart class="size-4" />
         {{ t('dialog.world.actions.show_previous_instances') }}
     </component>
-    <slot name="append" />
+    <slot v-if="platformCapabilities.vrchatMutations" name="append" />
 </template>
 
 <script setup>
@@ -31,6 +37,7 @@
 
     import { ContextMenuItem, ContextMenuSeparator } from './ui/context-menu';
     import { DropdownMenuItem, DropdownMenuSeparator } from './ui/dropdown-menu';
+    import { platformCapabilities } from '../web/platform';
 
     const { t } = useI18n();
 
@@ -80,12 +87,18 @@
     );
 
     const showPrimarySeparator = computed(
-        () => (props.showViewDetails || props.showShare) && (props.showNewInstance || props.showSelfInvite)
+        () =>
+            (props.showViewDetails || (platformCapabilities.vrchatMutations && props.showShare)) &&
+            ((platformCapabilities.localGameIntegration && props.showNewInstance) ||
+                (platformCapabilities.vrchatMutations && props.showSelfInvite))
     );
 
     const showSecondarySeparator = computed(
         () =>
             props.showPreviousInstances &&
-            (props.showViewDetails || props.showShare || props.showNewInstance || props.showSelfInvite)
+            (props.showViewDetails ||
+                (platformCapabilities.vrchatMutations && props.showShare) ||
+                (platformCapabilities.localGameIntegration && props.showNewInstance) ||
+                (platformCapabilities.vrchatMutations && props.showSelfInvite))
     );
 </script>

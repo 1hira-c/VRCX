@@ -8,6 +8,7 @@ import { useVRCXUpdaterStore } from '../vrcxUpdater';
 import { useVrcxStore } from '../vrcx';
 
 import configRepository from '../../services/config';
+import { isWebPlatform } from '../../web/platform.js';
 
 import * as workerTimers from 'worker-timers';
 
@@ -47,6 +48,12 @@ export const useGeneralSettingsStore = defineStore('GeneralSettings', () => {
     const autoDeclineFriendRequests = ref(false);
 
     async function initGeneralSettings() {
+        if (isWebPlatform) {
+            localFavoriteFriendsGroups.value = JSON.parse(
+                await configRepository.getString('VRCX_localFavoriteFriendsGroups', '[]')
+            );
+            return;
+        }
         const [
             isStartAtWindowsStartupConfig,
             isStartAsMinimizedStateConfig,

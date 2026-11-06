@@ -41,8 +41,16 @@ namespace VRCX
 
         public void Exit()
         {
-            m_Connection.Close();
-            m_Connection.Dispose();
+            m_ConnectionLock.EnterWriteLock();
+            try
+            {
+                m_Connection.Close();
+                m_Connection.Dispose();
+            }
+            finally
+            {
+                m_ConnectionLock.ExitWriteLock();
+            }
         }
 
         // for Electron
@@ -129,6 +137,66 @@ namespace VRCX
             {
                 m_ConnectionLock.ExitWriteLock();
             }
+        }
+
+        // The hidden server renderer publishes a read-only web projection in one
+        // transaction. Keeping the batch in this existing SQLite service means
+        // the renderer remains the only database writer and no SQL bridge is
+        // exposed to the browser-facing server.
+        public int ExecuteTransactionJson(string operationsJson)
+        {
+            var operations = JsonSerializer.Deserialize<List<SQLiteTransactionOperation>>(
+                operationsJson,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+            ) ?? new List<SQLiteTransactionOperation>();
+            if (operations.Count > 50000)
+                throw new ArgumentOutOfRangeException(nameof(operationsJson), "Too many SQLite transaction operations");
+
+            m_ConnectionLock.EnterWriteLock();
+            try
+            {
+                using var transaction = m_Connection.BeginTransaction();
+                var affectedRows = 0;
+                foreach (var operation in operations)
+                {
+                    if (string.IsNullOrWhiteSpace(operation.Sql))
+                        throw new ArgumentException("SQLite transaction operation SQL must not be empty", nameof(operationsJson));
+
+                    using var command = new SQLiteCommand(operation.Sql, m_Connection, transaction);
+                    if (operation.Args != null)
+                    {
+                        foreach (var arg in operation.Args)
+                            command.Parameters.Add(new SQLiteParameter(arg.Key, ConvertJsonValue(arg.Value)));
+                    }
+                    affectedRows += command.ExecuteNonQuery();
+                }
+                transaction.Commit();
+                return affectedRows;
+            }
+            finally
+            {
+                m_ConnectionLock.ExitWriteLock();
+            }
+        }
+
+        private static object ConvertJsonValue(JsonElement value)
+        {
+            return value.ValueKind switch
+            {
+                JsonValueKind.Null => DBNull.Value,
+                JsonValueKind.String => value.GetString() ?? string.Empty,
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Number when value.TryGetInt64(out var integer) => integer,
+                JsonValueKind.Number => value.GetDouble(),
+                _ => value.GetRawText()
+            };
+        }
+
+        private sealed class SQLiteTransactionOperation
+        {
+            public string Sql { get; set; } = string.Empty;
+            public Dictionary<string, JsonElement>? Args { get; set; }
         }
     }
 }

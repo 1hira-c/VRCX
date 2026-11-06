@@ -10,10 +10,12 @@
                         </SidebarMenuButton>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent side="right" align="start" class="w-56">
-                        <DropdownMenuItem @click="emit('show-changelog')">
-                            <span>{{ t('nav_menu.changelog') }}</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
+                        <template v-if="!isWebPlatform">
+                            <DropdownMenuItem @click="emit('show-changelog')">
+                                <span>{{ t('nav_menu.changelog') }}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                        </template>
                         <DropdownMenuLabel>{{ t('nav_menu.resources') }}</DropdownMenuLabel>
                         <DropdownMenuItem @click="emit('support-link', 'wiki')">
                             <span>{{ t('nav_menu.wiki') }}</span>
@@ -63,14 +65,24 @@
                         </div>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                            v-if="hasPendingUpdate || hasPendingInstall"
+                            v-if="!isWebPlatform && (hasPendingUpdate || hasPendingInstall)"
                             @click="emit('show-vrcx-update-dialog')">
                             <span>{{ t('nav_menu.update_available') }}</span>
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator v-if="hasPendingUpdate || hasPendingInstall" />
-                        <DropdownMenuItem @click="emit('settings-click')">
+                        <DropdownMenuSeparator v-if="!isWebPlatform && (hasPendingUpdate || hasPendingInstall)" />
+                        <DropdownMenuItem v-if="!isWebPlatform" @click="emit('settings-click')">
                             <span>{{ t('nav_tooltip.settings') }}</span>
                         </DropdownMenuItem>
+
+                        <template v-if="isWebPlatform">
+                            <DropdownMenuItem @click="emit('vrchat-reauth')">
+                                <span>{{ t('web.vrchat.reauthenticate') }}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem @click="emit('web-devices')">
+                                <span>{{ t('web.devices.menu') }}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                        </template>
 
                         <DropdownMenuSub>
                             <DropdownMenuSubTrigger>
@@ -141,13 +153,13 @@
                                 </DropdownMenuCheckboxItem>
                             </DropdownMenuSubContent>
                         </DropdownMenuSub>
-                        <DropdownMenuItem @click="emit('open-custom-nav')">
+                        <DropdownMenuItem v-if="!isWebPlatform" @click="emit('open-custom-nav')">
                             <span>{{ t('nav_menu.custom_nav.header') }}</span>
                         </DropdownMenuItem>
 
                         <DropdownMenuSeparator />
                         <DropdownMenuItem variant="destructive" @click="emit('logout-click')">
-                            <span>{{ t('dialog.user.actions.logout') }}</span>
+                            <span>{{ isWebPlatform ? t('web.vrchat.logout') : t('dialog.user.actions.logout') }}</span>
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -170,6 +182,7 @@
     import { useI18n } from 'vue-i18n';
     import { useRouter } from 'vue-router';
     import { computed, ref, watch } from 'vue';
+    import { isWebPlatform } from '../../web/platform';
 
     import { TooltipWrapper } from '@/components/ui/tooltip';
     import {
@@ -255,6 +268,8 @@
         'theme-color-select',
         'table-density-select',
         'open-custom-nav',
+        'vrchat-reauth',
+        'web-devices',
         'logout-click',
         'toggle-nav-collapse',
         'open-github'

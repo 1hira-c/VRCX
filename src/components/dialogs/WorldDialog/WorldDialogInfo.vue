@@ -1,6 +1,6 @@
 <template>
     <div class="flex flex-col gap-2.5 mt-2.5">
-        <div class="rounded-xl bg-(--profile-card) p-3">
+        <div v-if="platformCapabilities.activityDetails" class="rounded-xl bg-(--profile-card) p-3">
             <div
                 class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2 pb-2 border-b border-border">
                 {{ t('dialog.user.info.vrcx_info') }}
@@ -204,6 +204,7 @@
     import { useAuthStore, useInstanceStore, useWorldStore } from '../../../stores';
     import { copyToClipboard, openExternalLink, timeAgo, timeToText } from '../../../shared/utils';
     import { useWorldDialogInfo } from './useWorldDialogInfo';
+    import { platformCapabilities } from '../../../web/platform';
 
     const { t } = useI18n();
 

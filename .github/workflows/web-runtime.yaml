@@ -1,0 +1,154 @@
+name: Web runtime
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - 'codex/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Web and .NET tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - run: npm ci
+      - run: npm run typecheck:js
+      - run: npm run typecheck:vue
+      # Keep this job focused on the browser adapters and native-runtime
+      # boundary regressions; the existing desktop workflow is unchanged.
+      - name: Test Web adapters and runtime boundaries
+        run: >-
+          npm test -- src/web
+          src/services/__tests__/runtimeCapabilities.test.js
+          src/services/__tests__/server*.test.js
+          src/shared/utils/base/__tests__/uiNativeBoundary.test.js
+      - name: Test cookie protection
+        run: dotnet test tests/VRCX.Transport.Tests/VRCX.Transport.Tests.csproj --configuration Release -p:Platform=x64 --runtime linux-x64
+      - name: Test administrator sessions and pairing
+        run: dotnet test tests/VRCX.Web.Auth.Tests/VRCX.Web.Auth.Tests.csproj --configuration Release -p:Platform=x64 --runtime linux-x64
+      - name: Test fixed APIs, worker lifecycle, and snapshot import
+        run: dotnet test tests/VRCX.Web.Server.Tests/VRCX.Web.Server.Tests.csproj --configuration Release -p:Platform=x64 --runtime linux-x64
+
+  docker:
+    name: Docker and HTTPS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      COMPOSE_PROJECT_NAME: vrcx-web-ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+      VRCX_SERVER_IMAGE: vrcx-web-ci/server:${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+      VRCX_CADDY_IMAGE: vrcx-web-ci/caddy:${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+      # CI has no tailnet: publish only to this disposable runner's loopback.
+      VRCX_BIND_ADDRESS: 127.0.0.1
+      VRCX_HOST: vrcx-web-ci.local
+      VRCX_HTTPS_PORT: '8444'
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create disposable secrets without displaying values
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/vrcx-web-ci.XXXXXX")
+          openssl rand -base64 -out "$secret_dir/vrcx_secret_key" 32
+          openssl rand -base64 -out "$secret_dir/vrcx_setup_token" 32
+          chmod 0640 "$secret_dir/vrcx_secret_key" "$secret_dir/vrcx_setup_token"
+          printf 'VRCX_SECRET_KEY_FILE=%s\n' "$secret_dir/vrcx_secret_key" >> "$GITHUB_ENV"
+          printf 'VRCX_SETUP_TOKEN_FILE=%s\n' "$secret_dir/vrcx_setup_token" >> "$GITHUB_ENV"
+          printf 'VRCX_SECRET_GID=%s\n' "$(stat -c '%g' "$secret_dir/vrcx_secret_key")" >> "$GITHUB_ENV"
+      - name: Build native server and Caddy images
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --platform linux/${{ matrix.arch }} --tag "$VRCX_SERVER_IMAGE" .
+          docker build --platform linux/${{ matrix.arch }} --file deploy/Caddy.Dockerfile --tag "$VRCX_CADDY_IMAGE" .
+      - name: Start isolated Compose stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose --project-name "$COMPOSE_PROJECT_NAME" config --quiet
+          docker compose --project-name "$COMPOSE_PROJECT_NAME" up --detach --no-build --wait --wait-timeout 180
+      - name: Verify HTTPS and reject unauthenticated API access
+        shell: bash
+        run: |
+          set -euo pipefail
+          root_ca="$RUNNER_TEMP/vrcx-web-ci-root.crt"
+          for attempt in {1..20}; do
+            if docker compose --project-name "$COMPOSE_PROJECT_NAME" cp \
+              caddy:/data/caddy/pki/authorities/local/root.crt "$root_ca"; then
+              break
+            fi
+            sleep 1
+          done
+          test -s "$root_ca"
+          base_url="https://$VRCX_HOST:$VRCX_HTTPS_PORT"
+          curl_args=(--silent --show-error --max-time 10 --cacert "$root_ca" \
+            --resolve "$VRCX_HOST:$VRCX_HTTPS_PORT:127.0.0.1")
+          curl "${curl_args[@]}" --fail --output /dev/null "$base_url/"
+          curl "${curl_args[@]}" --fail --output /dev/null "$base_url/healthz"
+          for endpoint in status friends feed events; do
+            code=$(curl "${curl_args[@]}" --output /dev/null --write-out '%{http_code}' "$base_url/api/v1/$endpoint")
+            test "$code" = 401
+          done
+          server_id=$(docker compose --project-name "$COMPOSE_PROJECT_NAME" ps --quiet vrcx-server)
+          published_ports=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$server_id")
+          test "$published_ports" = null || test "$published_ports" = '{}'
+      - name: Verify browser rendering and read-only routes with API fixtures
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0777 "$RUNNER_TEMP/vrcx-web-browser"
+          # TLS is verified above. This browser checks the original compiled UI
+          # over the private Compose network; authenticated views use fixtures.
+          docker run --rm --init --shm-size=256m \
+            --network "${COMPOSE_PROJECT_NAME}_vrcx" \
+            --volume "$GITHUB_WORKSPACE/tests/browser-web-smoke.cjs:/smoke/browser-web-smoke.cjs:ro" \
+            --volume "$RUNNER_TEMP/vrcx-web-browser:/artifacts" \
+            --env VRCX_SMOKE_URL=http://vrcx-server:8080/ \
+            --env VRCX_SMOKE_OUTPUT=/artifacts \
+            --entrypoint /usr/bin/xvfb-run "$VRCX_SERVER_IMAGE" \
+            -a /app/worker/electron/electron --no-sandbox /smoke/browser-web-smoke.cjs
+      - name: Save browser smoke report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-browser-smoke-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/vrcx-web-browser/report.json
+            ${{ runner.temp }}/vrcx-web-browser/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Diagnose failed smoke test
+        if: failure()
+        run: |
+          docker compose --project-name "$COMPOSE_PROJECT_NAME" ps --all
+          docker compose --project-name "$COMPOSE_PROJECT_NAME" logs --no-color --tail 100
+      - name: Remove disposable stack and volumes
+        if: always()
+        run: docker compose --project-name "$COMPOSE_PROJECT_NAME" down --volumes --remove-orphans

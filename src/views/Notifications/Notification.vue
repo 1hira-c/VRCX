@@ -62,7 +62,10 @@
                             :placeholder="t('view.notification.search_placeholder')"
                             clearable
                             class="flex-[0.4] my-0 mx-2 min-w-50" />
-                        <TooltipWrapper side="bottom" :content="t('view.notification.refresh_tooltip')">
+                        <TooltipWrapper
+                            v-if="!isReadOnlyWeb"
+                            side="bottom"
+                            :content="t('view.notification.refresh_tooltip')">
                             <Button
                                 class="rounded-full"
                                 variant="ghost"
@@ -80,9 +83,11 @@
             </template>
         </DataTableLayout>
         <SendInviteResponseDialog
+            v-if="!isReadOnlyWeb"
             v-model:send-invite-response-dialog="sendInviteResponseDialog"
             v-model:sendInviteResponseDialogVisible="sendInviteResponseDialogVisible" />
         <SendInviteRequestResponseDialog
+            v-if="!isReadOnlyWeb"
             v-model:send-invite-response-dialog="sendInviteResponseDialog"
             v-model:sendInviteRequestResponseDialogVisible="sendInviteRequestResponseDialogVisible" />
     </div>
@@ -115,6 +120,7 @@
     import SendInviteRequestResponseDialog from './dialogs/SendInviteRequestResponseDialog.vue';
     import SendInviteResponseDialog from './dialogs/SendInviteResponseDialog.vue';
     import configRepository from '../../services/config';
+    import { isReadOnlyWeb } from '../../web/platform';
 
     const { refreshInviteMessageTableData } = useInviteStore();
     const { clearInviteImageUpload } = useGalleryStore();
@@ -314,6 +320,6 @@
     }
 
     onMounted(() => {
-        markAllAsSeen();
+        if (!isReadOnlyWeb) markAllAsSeen();
     });
 </script>
