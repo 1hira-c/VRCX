@@ -118,6 +118,16 @@ jobs:
           server_id=$(docker compose --project-name "$COMPOSE_PROJECT_NAME" ps --quiet vrcx-server)
           published_ports=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$server_id")
           test "$published_ports" = null || test "$published_ports" = '{}'
+      - name: Verify hidden renderer navigation and crash lifecycle
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --init --network none --shm-size=256m \
+            --volume "$GITHUB_WORKSPACE/tests/worker-renderer-lifecycle-smoke.cjs:/smoke/worker-renderer-lifecycle-smoke.cjs:ro" \
+            --volume "$GITHUB_WORKSPACE/tests/fixtures/worker-renderer.html:/smoke/fixtures/worker-renderer.html:ro" \
+            --entrypoint /usr/bin/xvfb-run "$VRCX_SERVER_IMAGE" \
+            -a /app/worker/electron/electron --no-sandbox /smoke/worker-renderer-lifecycle-smoke.cjs
       - name: Verify browser rendering and read-only routes with API fixtures
         timeout-minutes: 5
         shell: bash

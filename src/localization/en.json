@@ -3626,6 +3626,7 @@
                 "rate_limited": "VRChat rate limited",
                 "degraded": "Retrying sync",
                 "error": "Sync failed",
+                "worker_unavailable": "Reconnecting to VRCX",
                 "requires_authentication": "VRChat reauthentication required",
                 "not_configured": "Connect VRChat",
                 "stale": "Sync data is stale",
@@ -3640,6 +3641,7 @@
                 "rate_limited": "Rate limit",
                 "degraded": "Retrying",
                 "error": "Sync failed",
+                "worker_unavailable": "Reconnecting",
                 "requires_authentication": "Reauthenticate",
                 "not_configured": "Not connected",
                 "stale": "Stale data",
@@ -3667,12 +3669,15 @@
             "logout_title": "Log out of VRChat?",
             "logout_description": "End the current VRChat session and return to the login screen. The VRCX Web administrator session remains signed in.",
             "status_tooltip": "VRChat: {status}. Click to reauthenticate.",
+            "worker_unavailable_title": "Reconnecting to the background VRCX runtime",
+            "worker_unavailable_description": "The background runtime is temporarily unavailable. Its authentication status cannot be confirmed yet. Saved history is retained; no new login is needed while reconnection is in progress.",
             "status": {
                 "authenticated": "Authenticated",
                 "authenticating": "Authenticating",
                 "two_factor_required": "Waiting for 2FA",
                 "requires_authentication": "Reauthentication required",
-                "unknown": "Unknown status"
+                "unknown": "Unknown status",
+                "worker_unavailable": "Reconnecting to VRCX"
             }
         },
         "devices": {

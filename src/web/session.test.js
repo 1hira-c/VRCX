@@ -65,10 +65,11 @@ beforeEach(() => {
     state.ready = false;
     state.pendingRequests = 0;
     state.error = '';
+    state.workerConnection = 'checking';
     Object.assign(state.auth, { bootstrapped: false, authenticated: false, device: null, expiresAt: null });
     Object.assign(state.vrchatAuth, {
         ok: false,
-        status: 'requires_authentication',
+        status: 'unknown',
         challenge: null,
         currentUser: null,
         errorCode: null
@@ -126,10 +127,80 @@ beforeEach(() => {
 
 afterEach(() => {
     webSession.closeEvents();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
 });
 
 describe('webSession', () => {
+    it('preserves confirmed authentication and saved history when the worker returns 503', async () => {
+        await webSession.initialize();
+        const auth = webSession.state.vrchatAuth;
+        const friends = webSession.state.data.friends;
+        webSession.state.data.feed = [{ id: 'saved-feed' }];
+        const feed = webSession.state.data.feed;
+        const unavailable = Object.assign(new Error('Service Unavailable'), {
+            status: 503,
+            body: { error: 'vrchat_worker_unavailable' }
+        });
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(unavailable);
+
+        await webSession.refreshVrchatAuth({ silent: true });
+
+        expect(webSession.state.workerConnection).toBe('unavailable');
+        expect(webSession.state.vrchatAuth).toBe(auth);
+        expect(webSession.state.vrchatAuth.status).toBe('authenticated');
+        expect(webSession.state.auth.authenticated).toBe(true);
+        expect(webSession.state.data.friends).toBe(friends);
+        expect(webSession.state.data.feed).toBe(feed);
+        expect(canBrowseWeb()).toBe(true);
+        expect(webSession.state.error).toContain('認証切れとは限りません');
+    });
+
+    it('does not infer expired VRChat authentication from an initial worker outage', async () => {
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(Object.assign(new Error('Unavailable'), { status: 503 }));
+        webApi.getFriends.mockResolvedValueOnce({ items: [] });
+
+        await webSession.initialize();
+
+        expect(webSession.state.workerConnection).toBe('unavailable');
+        expect(webSession.state.vrchatAuth.status).toBe('unknown');
+        expect(webSession.state.auth.authenticated).toBe(true);
+    });
+
+    it('detects worker recovery with a bounded local status read without resubmitting credentials', async () => {
+        vi.useFakeTimers();
+        await webSession.initialize();
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(Object.assign(new Error('Unavailable'), { status: 503 }));
+        await webSession.refreshVrchatAuth({ silent: true });
+        const statusCalls = webApi.getVrchatAuthStatus.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(9_999);
+        expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(statusCalls);
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(statusCalls + 1);
+        expect(webSession.state.workerConnection).toBe('available');
+        expect(webSession.state.vrchatAuth.status).toBe('authenticated');
+        expect(webSession.state.error).toBe('');
+        expect(webApi.loginVrchat).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(statusCalls + 1);
+    });
+
+    it('stops worker reconnect status checks when the administrator logs out', async () => {
+        vi.useFakeTimers();
+        await webSession.initialize();
+        webApi.getVrchatAuthStatus.mockRejectedValueOnce(Object.assign(new Error('Unavailable'), { status: 503 }));
+        await webSession.refreshVrchatAuth({ silent: true });
+        await webSession.logout();
+        const statusCalls = webApi.getVrchatAuthStatus.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        expect(webApi.getVrchatAuthStatus).toHaveBeenCalledTimes(statusCalls);
+        expect(webSession.state.auth.authenticated).toBe(false);
+    });
+
     it('reports the actual event stream lifecycle and keeps existing data while reconnecting', async () => {
         await webSession.initialize();
         const stream = MockEventSource.streams[0];

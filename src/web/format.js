@@ -125,6 +125,8 @@ export function errorMessage(error) {
         return 'このページの接続元を確認できませんでした。再読み込みしてください。';
     if (error?.status === 401) return 'セッションまたはVRChat認証が必要です。';
     if (error?.status === 429) return '要求が多すぎます。少し待ってから再試行してください。';
+    if (error?.status === 503)
+        return '常駐VRCXとの接続を復旧しています。認証切れとは限りません。保存済みデータは維持されています。';
     if (error?.status === 502) return 'VRChatとの通信に失敗しました。保存済みのデータはそのまま表示しています。';
     return error?.message || '要求を完了できませんでした。';
 }

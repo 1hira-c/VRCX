@@ -1,6 +1,24 @@
 import { connectionStatusPresentation, syncStatusPresentation } from './syncStatus';
 
 describe('Web sync status presentation', () => {
+    it('shows worker reconnection instead of treating an unavailable renderer as expired authentication', () => {
+        expect(
+            syncStatusPresentation(
+                {
+                    authenticationRequired: true,
+                    sync: { state: 'requires_authentication', stale: true, lastSuccessAt: '2026-11-06T04:30:00Z' }
+                },
+                'unavailable'
+            )
+        ).toMatchObject({
+            state: 'worker_unavailable',
+            lastSuccessAt: '2026-11-06T04:30:00Z',
+            stale: true,
+            labelKey: 'web.sync.state.worker_unavailable',
+            tone: 'warning'
+        });
+    });
+
     it('shows healthy data as synced with its actual last successful sync time', () => {
         const lastSuccessAt = '2026-11-06T04:30:00Z';
         expect(syncStatusPresentation({ sync: { state: 'healthy', stale: false, lastSuccessAt } })).toMatchObject({

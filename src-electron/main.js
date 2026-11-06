@@ -18,6 +18,7 @@ const { pathToFileURL } = require('url');
 const fs = require('fs');
 const os = require('os');
 const { createServerAuthControl } = require('./serverAuthControl');
+const { attachServerRendererLifecycle } = require('./serverRendererLifecycle');
 
 //app.disableHardwareAcceleration();
 
@@ -196,6 +197,7 @@ ipcMain.handle('callDotNetMethod', (event, className, methodName, args) => {
 let mainWindow = undefined;
 let serverAuthControl = null;
 let serverAuthRendererReady = false;
+let serverRendererLifecycle = null;
 const pendingServerAuthRequests = new Map();
 
 function createRendererControlError(code) {
@@ -246,7 +248,7 @@ function isMainRendererEvent(event) {
 }
 
 ipcMain.on('server-auth-control:ready', (event) => {
-    if (isMainRendererEvent(event)) {
+    if (isMainRendererEvent(event) && serverRendererLifecycle?.markReady()) {
         serverAuthRendererReady = true;
     }
 });
@@ -481,9 +483,14 @@ function createWindow() {
         }
     });
     if (serverMode) {
-        mainWindow.webContents.on('did-start-loading', markServerAuthRendererUnavailable);
-        mainWindow.webContents.on('render-process-gone', markServerAuthRendererUnavailable);
-        mainWindow.webContents.once('destroyed', markServerAuthRendererUnavailable);
+        serverRendererLifecycle = attachServerRendererLifecycle(mainWindow, {
+            markUnavailable: markServerAuthRendererUnavailable,
+            onFailure: (code) => {
+                if (appIsQuitting || serverTerminationRequested) return;
+                console.error('Hidden VRCX renderer needs restart:', code);
+                requestServerTermination();
+            }
+        });
         mainWindow.once('closed', () => {
             markServerAuthRendererUnavailable();
             mainWindow = undefined;
@@ -1063,6 +1070,8 @@ app.on('before-quit', function () {
 
     // Mark it as a quitting state to make macOS Dock's "Quit" action take effect.
     appIsQuitting = true;
+    serverRendererLifecycle?.dispose();
+    serverRendererLifecycle = null;
     markServerAuthRendererUnavailable();
     if (serverAuthControl) {
         void serverAuthControl.close();

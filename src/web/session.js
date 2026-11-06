@@ -4,6 +4,7 @@ import { itemsFrom, webApi } from './api';
 import { errorMessage } from './format';
 
 const DEFAULT_PAGE = Object.freeze({ offset: 0, limit: 100 });
+const WORKER_RECONNECT_DELAY = 10_000;
 
 const resourceRequests = Object.freeze({
     friends: (page) => webApi.getFriends(page),
@@ -26,7 +27,7 @@ const state = reactive({
     },
     vrchatAuth: {
         ok: false,
-        status: 'requires_authentication',
+        status: 'unknown',
         challenge: null,
         currentUser: null,
         errorCode: null
@@ -52,11 +53,14 @@ const state = reactive({
     pages: {},
     resourceRevisions: {},
     lastUpdatedAt: null,
-    eventsConnection: 'idle'
+    eventsConnection: 'idle',
+    workerConnection: 'checking'
 });
 
 let events;
 let lastAuthCheckAt = 0;
+let workerReconnectTimer;
+let workerFailureMessage = '';
 
 export const webSession = {
     state,
@@ -131,7 +135,7 @@ async function refreshAuth() {
 }
 
 async function refreshVrchatAuth(options = {}) {
-    return run(async () => applyVrchatAuth(await webApi.getVrchatAuthStatus()), options);
+    return runWorkerAuth(() => webApi.getVrchatAuthStatus(), options);
 }
 
 async function refreshAll(options = {}) {
@@ -232,19 +236,19 @@ async function redeemPairing(code, deviceName) {
 }
 
 async function loginVrchat(username, password) {
-    return run(() => webApi.loginVrchat(username, password).then(applyVrchatAuth));
+    return runWorkerAuth(() => webApi.loginVrchat(username, password));
 }
 
 async function submitVrchatTwoFactor(kind, code) {
-    return run(() => webApi.submitVrchatTwoFactor(kind, code).then(applyVrchatAuth));
+    return runWorkerAuth(() => webApi.submitVrchatTwoFactor(kind, code));
 }
 
 async function resendVrchatEmailOtp() {
-    return run(() => webApi.resendVrchatEmailOtp().then(applyVrchatAuth));
+    return runWorkerAuth(() => webApi.resendVrchatEmailOtp());
 }
 
 async function logoutVrchat() {
-    return run(() => webApi.logoutVrchat().then(applyVrchatAuth));
+    return runWorkerAuth(() => webApi.logoutVrchat());
 }
 
 async function createPairing() {
@@ -267,6 +271,40 @@ function clearError() {
     state.error = '';
 }
 
+async function runWorkerAuth(work, options = {}) {
+    return run(async () => {
+        try {
+            return applyVrchatAuth(await work());
+        } catch (error) {
+            // Transport availability is not evidence that the saved VRChat
+            // session expired. Keep the last confirmed auth and read model.
+            if (!error?.status || error.status >= 500) {
+                state.workerConnection = 'unavailable';
+                workerFailureMessage = errorMessage(error);
+            }
+            if (state.workerConnection === 'unavailable') scheduleWorkerReconnect();
+            throw error;
+        }
+    }, options);
+}
+
+function scheduleWorkerReconnect() {
+    if (workerReconnectTimer || !state.auth.authenticated) return;
+    workerReconnectTimer = window.setTimeout(() => {
+        workerReconnectTimer = undefined;
+        if (state.auth.authenticated && state.workerConnection === 'unavailable') {
+            // This fixed local status read never submits credentials or starts
+            // a new VRChat login; the original runtime owns that session.
+            void refreshVrchatAuth({ silent: true, keepError: true });
+        }
+    }, WORKER_RECONNECT_DELAY);
+}
+
+function clearWorkerReconnect() {
+    if (workerReconnectTimer) window.clearTimeout(workerReconnectTimer);
+    workerReconnectTimer = undefined;
+}
+
 function applyVrchatAuth(payload) {
     const allowedStatuses = new Set([
         'requires_authentication',
@@ -275,13 +313,15 @@ function applyVrchatAuth(payload) {
         'authenticated'
     ]);
     const allowedKinds = new Set(['totp', 'otp', 'emailOtp']);
-    const status = allowedStatuses.has(payload?.status) ? payload.status : 'requires_authentication';
+    const status = allowedStatuses.has(payload?.status) ? payload.status : 'unknown';
     const kinds = Array.isArray(payload?.challenge?.kinds)
         ? payload.challenge.kinds.filter((kind) => allowedKinds.has(kind))
         : [];
     const currentUserId =
         status === 'authenticated' && typeof payload?.currentUser?.id === 'string' ? payload.currentUser.id : '';
 
+    if (state.workerConnection === 'unavailable' && state.error === workerFailureMessage) clearError();
+    workerFailureMessage = '';
     state.vrchatAuth = {
         ok: Boolean(payload?.ok),
         status,
@@ -289,6 +329,8 @@ function applyVrchatAuth(payload) {
         currentUser: currentUserId ? { id: currentUserId } : null,
         errorCode: typeof payload?.errorCode === 'string' ? payload.errorCode : null
     };
+    state.workerConnection = 'available';
+    clearWorkerReconnect();
     return state.vrchatAuth;
 }
 
@@ -359,6 +401,7 @@ function startEvents() {
 }
 
 function closeEvents() {
+    clearWorkerReconnect();
     events?.close();
     events = undefined;
     state.eventsConnection = 'closed';

@@ -14,6 +14,14 @@ In server mode, the Electron main process:
 - exposes runtime capabilities to the renderer so desktop-only side effects are
   skipped while the original remote synchronization and persistence paths remain active.
 
+Renderer readiness follows the main document, not Electron's loading spinner. With a
+`file://` entry point, the original router's hash transitions also emit
+`did-start-loading`; these transitions must preserve the registered control handlers.
+Only a new main-frame document clears readiness. A missing ready handshake, crashed
+renderer, or unresponsive hidden window terminates the worker so the existing process
+supervisor can restart it. Browser-side worker availability is tracked separately from
+VRChat authentication; an internal 503 preserves the last known session and data.
+
 The server data directory must be supplied explicitly, for example:
 
 ```sh

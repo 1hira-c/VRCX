@@ -21,15 +21,18 @@ const CONNECTION_STATES = new Set([
 ]);
 
 /** Build the browser status indicator from reported state, without inferring connectivity. */
-export function syncStatusPresentation(status) {
+export function syncStatusPresentation(status, workerConnection = 'available') {
     const sync = status?.sync;
-    const state = status?.authenticationRequired
-        ? 'requires_authentication'
-        : sync?.stale
-          ? 'stale'
-          : SYNC_STATES.has(sync?.state)
-            ? sync.state
-            : 'unknown';
+    const state =
+        workerConnection === 'unavailable'
+            ? 'worker_unavailable'
+            : status?.authenticationRequired
+              ? 'requires_authentication'
+              : sync?.stale
+                ? 'stale'
+                : SYNC_STATES.has(sync?.state)
+                  ? sync.state
+                  : 'unknown';
     const lastSuccessAt =
         typeof sync?.lastSuccessAt === 'string' && Number.isFinite(Date.parse(sync.lastSuccessAt))
             ? sync.lastSuccessAt

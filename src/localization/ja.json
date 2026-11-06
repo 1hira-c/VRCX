@@ -3182,6 +3182,7 @@
                 "rate_limited": "VRChatのレート制限中",
                 "degraded": "同期を再試行中",
                 "error": "同期に失敗",
+                "worker_unavailable": "常駐VRCXへ再接続中",
                 "requires_authentication": "VRChatの再認証が必要",
                 "not_configured": "VRChatを接続してください",
                 "stale": "同期データが古くなっています",
@@ -3196,6 +3197,7 @@
                 "rate_limited": "レート制限",
                 "degraded": "再試行中",
                 "error": "同期失敗",
+                "worker_unavailable": "再接続中",
                 "requires_authentication": "再認証が必要",
                 "not_configured": "未接続",
                 "stale": "古いデータ",
@@ -3223,12 +3225,15 @@
             "logout_title": "VRChatからログアウトしますか？",
             "logout_description": "現在のVRChatセッションを終了してログイン画面へ戻ります。VRCX Webの管理者セッションは維持されます。",
             "status_tooltip": "VRChat: {status}。クリックして再認証します。",
+            "worker_unavailable_title": "常駐VRCXへ再接続しています",
+            "worker_unavailable_description": "常駐処理に一時的に接続できず、認証状態を確認できていません。保存済みの履歴は維持されています。再接続中にログインし直す必要はありません。",
             "status": {
                 "authenticated": "認証済み",
                 "authenticating": "認証中",
                 "two_factor_required": "2FA入力待ち",
                 "requires_authentication": "再認証が必要",
-                "unknown": "状態不明"
+                "unknown": "状態不明",
+                "worker_unavailable": "常駐VRCXへ再接続中"
             }
         },
         "devices": {
