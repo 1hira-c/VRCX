@@ -4,7 +4,7 @@
             <CardHeader>
                 <div class="web-auth-kicker">
                     <ShieldCheck :size="18" aria-hidden="true" />
-                    Tailscale 内限定
+                    プライベートネットワーク内限定
                 </div>
                 <CardTitle class="text-2xl">VRCX Web</CardTitle>
                 <CardDescription v-if="!state.auth.bootstrapped">
@@ -26,10 +26,11 @@
                     <Alert class="border-primary/30 bg-primary/5">
                         <AlertTitle>初回確認コード</AlertTitle>
                         <AlertDescription>
-                            このコードは、Web管理者を最初に作る人がDockerホストを操作できることを確認するためだけに使います。
-                            ホスト上で
+                            このコードは、Web管理者を最初に作る人がサーバーを操作できることを確認するためだけに使います。
+                            Docker Compose ではホスト上で
                             <code>cat deploy/secrets/vrcx_setup_token</code>
-                            を実行し、表示された内容を入力してください。
+                            を実行し、Home Assistant
+                            アドオンではアドオンのログを開いて、表示された内容を入力してください。
                             VRChatの認証情報でもDB暗号化鍵でもなく、管理者作成後は再利用できません。
                         </AlertDescription>
                     </Alert>
@@ -151,7 +152,9 @@
                             <AlertDescription>
                                 Docker ホストで
                                 <code>dotnet VRCX.Web.Server.dll --issue-admin-recovery</code>
-                                をサーバーコンテナ内から実行します。復旧コードは10分で失効し、一度使うと無効になります。
+                                をサーバーコンテナ内から実行します（Home Assistant アドオンでは
+                                <code>vrcx-addon-run --issue-admin-recovery</code
+                                >）。復旧コードは10分で失効し、一度使うと無効になります。
                             </AlertDescription>
                         </Alert>
                         <label class="web-form-field">
