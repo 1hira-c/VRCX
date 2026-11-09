@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+# Home Assistant add-on entrypoint for VRCX Web.
+#
+# Runs as root only long enough to prepare /data, secrets and TLS material, then starts the
+# ASP.NET server (which supervises the hidden Electron worker) and Caddy as the unprivileged
+# app user. If either process exits, the container exits so the Supervisor watchdog restarts it.
+set -euo pipefail
+umask 077
+
+OPTIONS_FILE=/data/options.json
+DATA=/data
+SECRETS="$DATA/secrets"
+TLS_DIR="$DATA/tls"
+CADDY_DIR="$DATA/caddy"
+APP_USER_ID="${APP_UID:-1654}"
+SHARE_DIR=/share/vrcx
+
+log() { printf '[vrcx-addon] %s\n' "$*"; }
+fail() { log "ERROR: $*" >&2; exit 1; }
+
+option() {
+    local key="$1" fallback="$2"
+    if [[ -s "$OPTIONS_FILE" ]]; then
+        jq -r --arg key "$key" --arg fallback "$fallback" \
+            'if has($key) and .[$key] != null then .[$key] else $fallback end' "$OPTIONS_FILE"
+    else
+        printf '%s\n' "$fallback"
+    fi
+}
+
+hostnames() {
+    if [[ -s "$OPTIONS_FILE" ]] && jq -e '(.hostnames // []) | length > 0' "$OPTIONS_FILE" >/dev/null; then
+        jq -r '.hostnames[]' "$OPTIONS_FILE"
+    else
+        printf 'homeassistant.local\n'
+    fi
+}
+
+as_app() {
+    # exec: when called as `as_app ... &`, the background subshell is replaced by the target, so
+    # $! is the real server PID and SIGTERM reaches it directly.
+    exec setpriv --reuid="$APP_USER_ID" --regid="$APP_USER_ID" --clear-groups \
+        --inh-caps=-all --bounding-set=-all --no-new-privs -- "$@"
+}
+
+new_secret() {
+    local path="$1"
+    if [[ ! -s "$path" ]]; then
+        openssl rand -base64 32 > "$path.tmp"
+        mv "$path.tmp" "$path"
+        log "Generated $(basename "$path")."
+    fi
+}
+
+ssl_file() {
+    # Certificate names are relative to the Home Assistant /ssl share.
+    local name="$1"
+    [[ -n "$name" && "$name" != /* && "$name" != *..* ]] || fail "Invalid certificate file name: $name"
+    [[ -s "/ssl/$name" ]] || fail "/ssl/$name does not exist. Set ssl: false to use the built-in CA."
+    printf '/ssl/%s\n' "$name"
+}
+
+server_environment() {
+    export ASPNETCORE_ENVIRONMENT=Production
+    export ASPNETCORE_URLS=http://127.0.0.1:8080
+    unset ASPNETCORE_HTTP_PORTS ASPNETCORE_HTTPS_PORTS
+    export VrcxWeb__Auth__DataDirectory="$DATA"
+    export VrcxWeb__Auth__SetupTokenFile="$SECRETS/vrcx_setup_token"
+    export VrcxWeb__ReadModel__DatabasePath="$DATA/runtime/VRCX.sqlite3"
+    export VrcxWeb__SnapshotImport__StagingDirectory="$DATA/import-staging"
+    export VrcxWeb__Worker__BaseAddress=http://127.0.0.1:18081
+    export VrcxWeb__WorkerProcess__Enabled=true
+    export VrcxWeb__WorkerProcess__DataDirectory="$DATA/runtime"
+    # Add-on containers keep Docker's 64 MB /dev/shm; let Chromium use /tmp instead.
+    export VrcxWeb__WorkerProcess__DisableDevShmUsage=true
+    export VRCX_WEB_SECRET_KEY_FILE="$SECRETS/vrcx_secret_key"
+    export HOME="$DATA/runtime/home"
+    export XDG_CONFIG_HOME="$DATA/runtime/xdg-config"
+    export XDG_CACHE_HOME="$DATA/runtime/xdg-cache"
+}
+
+if [[ "${1:-}" == "--issue-admin-recovery" ]]; then
+    # Used via: docker exec -it addon_<id>_vrcx_web vrcx-addon-run --issue-admin-recovery
+    server_environment
+    cd /app
+    as_app dotnet VRCX.Web.Server.dll --issue-admin-recovery
+fi
+
+issue_private_certificate() {
+    # A small private CA kept in /data/tls. One leaf certificate covers every configured host name
+    # and IP address, so the add-on also works when it is opened as https://<LAN IP>:8443/.
+    local ca_key="$TLS_DIR/ca.key" ca_crt="$TLS_DIR/ca.crt"
+    local key="$TLS_DIR/key.pem" crt="$TLS_DIR/cert.pem" names_file="$TLS_DIR/cert.names"
+    local san="" host names
+    for host in "${HOSTS[@]}"; do
+        if [[ "$host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+            san+="${san:+,}IP:$host"
+        else
+            san+="${san:+,}DNS:$host"
+        fi
+    done
+    names="$san"
+
+    if [[ ! -s "$ca_key" || ! -s "$ca_crt" ]] || ! openssl x509 -in "$ca_crt" -noout -checkend 2592000 >/dev/null; then
+        openssl req -x509 -new -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+            -keyout "$ca_key" -out "$ca_crt" -days 3650 -sha256 \
+            -subj "/CN=VRCX Web Home Assistant add-on local CA $(openssl rand -hex 4)" \
+            -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
+        rm -f "$crt"
+        log "Created a new private CA. Install its public certificate on trusted devices."
+    fi
+
+    if [[ -s "$crt" && -s "$key" && "$(cat "$names_file" 2>/dev/null)" == "$names" ]] &&
+        openssl x509 -in "$crt" -noout -checkend 2592000 >/dev/null &&
+        openssl verify -CAfile "$ca_crt" "$crt" >/dev/null 2>&1; then
+        return
+    fi
+
+    local csr="$TLS_DIR/cert.csr" ext="$TLS_DIR/cert.ext"
+    openssl req -new -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+        -keyout "$key" -out "$csr" -subj "/CN=${HOSTS[0]}" 2>/dev/null
+    printf '%s\n' \
+        "basicConstraints=critical,CA:FALSE" \
+        "keyUsage=critical,digitalSignature" \
+        "extendedKeyUsage=serverAuth" \
+        "subjectAltName=$san" > "$ext"
+    openssl x509 -req -in "$csr" -CA "$ca_crt" -CAkey "$ca_key" -CAcreateserial \
+        -out "$crt" -days 397 -sha256 -extfile "$ext" 2>/dev/null
+    rm -f "$csr" "$ext"
+    printf '%s\n' "$names" > "$names_file"
+    log "Issued a server certificate for: $san"
+}
+
+# --- Persistent layout -------------------------------------------------------------------------
+mkdir -p "$SECRETS" "$TLS_DIR" "$CADDY_DIR/data" "$CADDY_DIR/config" \
+    "$DATA/runtime/home" "$DATA/runtime/xdg-config" "$DATA/runtime/xdg-cache" "$DATA/import-staging"
+
+new_secret "$SECRETS/vrcx_secret_key"
+new_secret "$SECRETS/vrcx_setup_token"
+if cmp -s "$SECRETS/vrcx_secret_key" "$SECRETS/vrcx_setup_token"; then
+    rm -f "$SECRETS/vrcx_setup_token"
+    new_secret "$SECRETS/vrcx_setup_token"
+fi
+
+# --- TLS / Caddy -------------------------------------------------------------------------------
+mapfile -t HOSTS < <(hostnames)
+for host in "${HOSTS[@]}"; do
+    [[ "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail "Invalid hostname: $host"
+done
+
+if [[ "$(option ssl false)" == "true" ]]; then
+    cert_source="$(ssl_file "$(option certfile fullchain.pem)")"
+    key_source="$(ssl_file "$(option keyfile privkey.pem)")"
+    install -m 0600 "$cert_source" "$TLS_DIR/cert.pem"
+    install -m 0600 "$key_source" "$TLS_DIR/key.pem"
+    use_internal_ca=false
+    log "Using the certificate from /ssl."
+else
+    issue_private_certificate
+    use_internal_ca=true
+    log "Using the built-in private CA for: ${HOSTS[*]}"
+fi
+
+cat > "$CADDY_DIR/Caddyfile" <<EOF
+{
+    admin off
+    auto_https disable_redirects
+    skip_install_trust
+    servers {
+        protocols h1 h2
+    }
+    log {
+        output stdout
+        format console
+        level WARN
+    }
+}
+
+https://:8443 {
+    tls $TLS_DIR/cert.pem $TLS_DIR/key.pem
+    encode zstd gzip
+    header {
+        -Server
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; img-src 'self' data: blob: https://*.vrchat.cloud https://*.vrchat.com https://*.cloudfront.net; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:"
+    }
+    reverse_proxy 127.0.0.1:8080
+}
+EOF
+caddy fmt --overwrite "$CADDY_DIR/Caddyfile"
+# No Strict-Transport-Security on purpose: HSTS is per host name, so it would also force HTTPS
+# onto Home Assistant itself (for example http://homeassistant.local:8123).
+
+# --- Ownership ---------------------------------------------------------------------------------
+# Everything the add-on owns under /data belongs to the app user, except options.json and the
+# private CA key. The CA is trusted by the user's devices, so the network-facing processes must
+# never be able to read its key; only this root-run script issues certificates.
+find "$DATA" -xdev -mindepth 1 ! -path "$OPTIONS_FILE" ! -path "$TLS_DIR/ca.key" ! -path "$TLS_DIR/ca.srl" \
+    ! -user "$APP_USER_ID" -exec chown "$APP_USER_ID:$APP_USER_ID" {} +
+for root_only in "$TLS_DIR/ca.key" "$TLS_DIR/ca.srl"; do
+    if [[ -e "$root_only" ]]; then chown root:root "$root_only"; chmod 0600 "$root_only"; fi
+done
+chown "$APP_USER_ID:$APP_USER_ID" "$DATA"
+chmod 0700 "$SECRETS" "$TLS_DIR"
+
+# --- Start -------------------------------------------------------------------------------------
+server_environment
+pids=()
+terminate() {
+    log "Stopping..."
+    for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+}
+trap terminate TERM INT
+
+cd /app
+# Keep the add-on log readable: no per-request lines from the ASP.NET pipeline. The category name
+# contains a dot, which bash cannot export, so pass it through env(1).
+as_app env Logging__LogLevel__Microsoft.AspNetCore=Warning dotnet VRCX.Web.Server.dll &
+pids+=("$!")
+as_app env XDG_DATA_HOME="$CADDY_DIR/data" XDG_CONFIG_HOME="$CADDY_DIR/config" \
+    caddy run --config "$CADDY_DIR/Caddyfile" --adapter caddyfile &
+pids+=("$!")
+
+# Background helper: show the one-time setup token while no administrator exists, and export the
+# public root of the built-in CA so it can be installed on trusted devices.
+(
+    for _ in $(seq 1 120); do
+        status="$(curl -fsS --max-time 2 http://127.0.0.1:8080/api/v1/auth/status 2>/dev/null)" && break
+        sleep 1
+    done
+    if [[ -n "${status:-}" ]] && jq -e '.bootstrapped == false' <<<"$status" >/dev/null; then
+        log "No VRCX Web administrator exists yet. One-time setup token:"
+        log "    $(cat "$SECRETS/vrcx_setup_token")"
+    fi
+
+    if [[ "$use_internal_ca" == true ]]; then
+        root="$TLS_DIR/ca.crt"
+        if [[ -s "$root" ]]; then
+            log "Built-in CA root SHA-256: $(openssl x509 -in "$root" -noout -fingerprint -sha256 | cut -d= -f2)"
+            if [[ "$(option export_ca true)" == "true" && -d /share ]]; then
+                mkdir -p -m 0755 "$SHARE_DIR"
+                install -m 0644 "$root" "$SHARE_DIR/vrcx-local-ca.crt"
+                log "Public CA certificate copied to $SHARE_DIR/vrcx-local-ca.crt"
+            fi
+        fi
+    fi
+) &
+
+log "VRCX Web is starting on port 8443."
+set +e
+wait -n "${pids[@]}"
+status=$?
+terminate
+wait "${pids[@]}"
+exit "$status"

@@ -1,5 +1,5 @@
 name: VRCX Web
-version: "0.1.0"
+version: "0.1.1"
 slug: vrcx_web
 description: Original VRCX running 24/7 as a hidden worker, served to your browser over HTTPS.
 url: https://github.com/1hira-c/VRCX/tree/codex/vrcx-web-native/home-assistant/vrcx

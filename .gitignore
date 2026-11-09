@@ -18,6 +18,8 @@ CLAUDE.md
 coverage/
 **/bin/
 **/obj/
+# The Home Assistant add-on entrypoint lives in a rootfs bin directory, not a .NET build output.
+!home-assistant/vrcx/rootfs/usr/local/bin/
 deploy/secrets/*
 !deploy/secrets/.gitkeep
 deploy/vrcx-local-ca.crt
