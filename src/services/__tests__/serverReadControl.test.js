@@ -167,6 +167,16 @@ describe('serverReadControl', () => {
             order: 'descending',
             customFields: 'displayName'
         });
+        // Query string order follows the original searchUserByDisplayName/useSearchUser params.
+        expect(Object.keys(mocks.getUsers.mock.calls[0][0])).toEqual([
+            'n',
+            'offset',
+            'fuzzy',
+            'search',
+            'customFields',
+            'sort',
+            'order'
+        ]);
         expect(response).toMatchObject({ ok: true, offset: 20, limit: 10 });
         expect(response.items).toHaveLength(1);
         expect(response.items[0]).toMatchObject({
@@ -217,6 +227,17 @@ describe('serverReadControl', () => {
             },
             'favorites'
         );
+        // Query string order follows the original useSearchWorld params.
+        expect(Object.keys(mocks.getWorlds.mock.calls[0][0])).toEqual([
+            'n',
+            'offset',
+            'sort',
+            'featured',
+            'order',
+            'user',
+            'releaseStatus',
+            'tag'
+        ]);
         expect(response).toMatchObject({ ok: true, items: [{ id: 'wrld_favorite' }] });
     });
 

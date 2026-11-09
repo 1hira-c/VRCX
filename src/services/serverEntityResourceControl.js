@@ -354,6 +354,31 @@ function failure(code) {
     return { ok: false, result: null, errorCode: code };
 }
 
+// The boundary uses '' for "not set". The parameter builders below rebuild the
+// exact keys and key order of the original VRCX call sites, because GET params
+// become the VRChat query string verbatim (an '' value would still be sent).
+
+// UserDialogWorldsTab: `user` is added only for the current user.
+function originalUserWorldsParams(args) {
+    const params = {
+        n: args.n,
+        offset: args.offset,
+        sort: args.sort,
+        order: args.order,
+        userId: args.userId,
+        releaseStatus: args.releaseStatus
+    };
+    if (args.user) params.user = args.user;
+    return params;
+}
+
+// useGroupMembers: an empty roleId is deleted before the request.
+function originalGroupMembersParams(args) {
+    const params = { sort: args.sort, roleId: args.roleId, n: args.n, offset: args.offset, groupId: args.groupId };
+    if (params.roleId === '') delete params.roleId;
+    return params;
+}
+
 async function getResource(stores, payload) {
     const args = payload.arguments;
     switch (payload.name) {
@@ -364,18 +389,20 @@ async function getResource(stores, payload) {
         case 'userGroups':
             return (await groupRequest.getGroups({ userId: args.userId })).json.map(selectLimitedGroup);
         case 'userWorlds':
-            return (await worldRequest.getWorlds(args)).json.map(selectWorld);
+            return (await worldRequest.getWorlds(originalUserWorldsParams(args))).json.map(selectWorld);
         case 'userFavoriteGroups':
             return (
                 await favoriteRequest.getFavoriteGroups({ ownerId: args.userId, n: args.n, offset: args.offset })
             ).json.map(selectFavoriteGroup);
         case 'userFavoriteWorlds':
+            // UserDialogFavoriteWorldsTab sends both ownerId and userId.
             return (
                 await favoriteRequest.getFavoriteWorlds({
-                    userId: args.userId,
-                    tag: args.tag,
+                    ownerId: args.userId,
                     n: args.n,
-                    offset: args.offset
+                    offset: args.offset,
+                    userId: args.userId,
+                    tag: args.tag
                 })
             ).json.map(selectWorld);
         case 'userOwnedAvatars':
@@ -410,7 +437,9 @@ async function getResource(stores, payload) {
             return { items: avatars.map(selectAvatar), warningCode };
         }
         case 'groupPosts': {
-            const response = (await groupRequest.getGroupPosts(args)).json;
+            const response = (
+                await groupRequest.getGroupPosts({ groupId: args.groupId, n: args.n, offset: args.offset })
+            ).json;
             const posts = Array.isArray(response?.posts) ? response.posts.map(selectGroupPost) : [];
             return {
                 posts,
@@ -419,11 +448,20 @@ async function getResource(stores, payload) {
             };
         }
         case 'groupMember':
-            return selectGroupMember((await groupRequest.getGroupMember(args)).json);
+            return selectGroupMember(
+                (await groupRequest.getGroupMember({ groupId: args.groupId, userId: args.userId })).json
+            );
         case 'groupMembers':
-            return (await groupRequest.getGroupMembers(args)).json.map(selectGroupMember);
+            return (await groupRequest.getGroupMembers(originalGroupMembersParams(args))).json.map(selectGroupMember);
         case 'groupMembersSearch': {
-            const response = (await groupRequest.getGroupMembersSearch(args)).json;
+            const response = (
+                await groupRequest.getGroupMembersSearch({
+                    groupId: args.groupId,
+                    query: args.query,
+                    n: args.n,
+                    offset: args.offset
+                })
+            ).json;
             const results = Array.isArray(response?.results) ? response.results.map(selectGroupMember) : [];
             return {
                 results,

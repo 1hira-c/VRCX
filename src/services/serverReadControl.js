@@ -196,23 +196,30 @@ async function searchOriginalVrcx(payload) {
     const options = asObject(payload.options);
     switch (payload.type) {
         case 'user': {
+            // Same key order as the original searchUserByDisplayName /
+            // useSearchUser params, since they become the query string verbatim.
             const params = {
                 n: payload.limit,
-                offset: payload.offset,
-                search: payload.query
+                offset: payload.offset
             };
-            for (const field of ['fuzzy', 'sort', 'order', 'customFields']) {
+            if (Object.hasOwn(options, 'fuzzy')) params.fuzzy = options.fuzzy;
+            params.search = payload.query;
+            for (const field of ['customFields', 'sort', 'order']) {
                 if (Object.hasOwn(options, field)) params[field] = options[field];
             }
             return (await userRequest.getUsers(params)).json;
         }
         case 'world': {
+            // Same key order as the original useSearchWorld params.
             const params = {
                 n: payload.limit,
                 offset: payload.offset
             };
+            for (const field of ['sort', 'featured']) {
+                if (Object.hasOwn(options, field)) params[field] = options[field];
+            }
             if (payload.query) params.search = payload.query;
-            for (const field of ['sort', 'order', 'featured', 'tag', 'user', 'releaseStatus']) {
+            for (const field of ['order', 'user', 'releaseStatus', 'tag']) {
                 if (Object.hasOwn(options, field)) params[field] = options[field];
             }
             return (await worldRequest.getWorlds(params, options.worldOption || '')).json;

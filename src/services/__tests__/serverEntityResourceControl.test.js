@@ -283,6 +283,96 @@ describe('serverEntityResourceControl', () => {
         }
     );
 
+    it('sends the exact query parameters of the original VRCX call sites', async () => {
+        mocks.getWorlds.mockResolvedValue({ json: [] });
+        mocks.getFavoriteWorlds.mockResolvedValue({ json: [] });
+        mocks.getGroupMembers.mockResolvedValue({ json: [] });
+        mocks.getGroupMembersSearch.mockResolvedValue({ json: { results: [], total: 0 } });
+        mocks.getGroupPosts.mockResolvedValue({ json: { posts: [], total: 0 } });
+        const worldPage = { n: 50, offset: 0, sort: 'updated', order: 'descending' };
+
+        // Boundary order differs on purpose; params must follow the original order.
+        await entityResource(stores, {
+            name: 'userWorlds',
+            arguments: { userId: 'usr_target', ...worldPage, releaseStatus: 'public', user: '' }
+        });
+        await entityResource(stores, {
+            name: 'userWorlds',
+            arguments: { userId: 'usr_current', ...worldPage, releaseStatus: 'all', user: 'me' }
+        });
+        await entityResource(stores, {
+            name: 'userFavoriteWorlds',
+            arguments: { userId: 'usr_target', tag: 'worlds1', n: 100, offset: 0 }
+        });
+        await entityResource(stores, {
+            name: 'groupMembers',
+            arguments: { groupId: 'grp_example', n: 100, offset: 0, sort: 'joinedAt:desc', roleId: '' }
+        });
+        await entityResource(stores, {
+            name: 'groupMembers',
+            arguments: { groupId: 'grp_example', n: 100, offset: 100, sort: 'joinedAt:asc', roleId: 'grol_reader' }
+        });
+        await entityResource(stores, {
+            name: 'groupMembersSearch',
+            arguments: { offset: 0, n: 100, query: 'name', groupId: 'grp_example' }
+        });
+        await entityResource(stores, {
+            name: 'groupPosts',
+            arguments: { offset: 0, n: 100, groupId: 'grp_example' }
+        });
+
+        const entries = (mock, call = 0) => Object.entries(mock.mock.calls[call][0]);
+        expect(entries(mocks.getWorlds, 0)).toEqual([
+            ['n', 50],
+            ['offset', 0],
+            ['sort', 'updated'],
+            ['order', 'descending'],
+            ['userId', 'usr_target'],
+            ['releaseStatus', 'public']
+        ]);
+        expect(entries(mocks.getWorlds, 1)).toEqual([
+            ['n', 50],
+            ['offset', 0],
+            ['sort', 'updated'],
+            ['order', 'descending'],
+            ['userId', 'usr_current'],
+            ['releaseStatus', 'all'],
+            ['user', 'me']
+        ]);
+        expect(mocks.getWorlds.mock.calls[0]).toHaveLength(1);
+        expect(entries(mocks.getFavoriteWorlds)).toEqual([
+            ['ownerId', 'usr_target'],
+            ['n', 100],
+            ['offset', 0],
+            ['userId', 'usr_target'],
+            ['tag', 'worlds1']
+        ]);
+        expect(entries(mocks.getGroupMembers, 0)).toEqual([
+            ['sort', 'joinedAt:desc'],
+            ['n', 100],
+            ['offset', 0],
+            ['groupId', 'grp_example']
+        ]);
+        expect(entries(mocks.getGroupMembers, 1)).toEqual([
+            ['sort', 'joinedAt:asc'],
+            ['roleId', 'grol_reader'],
+            ['n', 100],
+            ['offset', 100],
+            ['groupId', 'grp_example']
+        ]);
+        expect(entries(mocks.getGroupMembersSearch)).toEqual([
+            ['groupId', 'grp_example'],
+            ['query', 'name'],
+            ['n', 100],
+            ['offset', 0]
+        ]);
+        expect(entries(mocks.getGroupPosts)).toEqual([
+            ['groupId', 'grp_example'],
+            ['n', 100],
+            ['offset', 0]
+        ]);
+    });
+
     it('never calls upstream resources without the original authenticated worker session', async () => {
         mocks.watchState.isLoggedIn = false;
         const response = await entityResource(stores, {
