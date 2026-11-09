@@ -17,11 +17,12 @@
 
 ### Raspberry Pi 5 のページサイズについて
 
-現行の HAOS は Raspberry Pi 5 のカーネルを 16 KB ページで動かしています。Electron（Chromium）と
-.NET 10 は arm64 の 16 KB ページに対応していますが、このアドオンを 16 KB ページの実機で
-検証したのは初回導入時になります。起動しない場合はアドオンのログを確認してください。
-ページサイズは Terminal & SSH アドオンで `getconf PAGESIZE` を実行すると確認できます
-（`16384` なら 16 KB）。
+現行の HAOS は Raspberry Pi 5 のカーネルを 16 KB ページで動かしています（Raspberry Pi の
+`bcm2712_defconfig` が `CONFIG_ARM64_16K_PAGES=y`）。このアドオンのイメージは、16 KB ページで
+ビルドした Linux 6.18 を QEMU（arm64、TCG）で起動した環境で、.NET サーバー、Caddy、Xvfb、Electron の
+worker が起動して HTTPS で応答することを確認済みです。Raspberry Pi 5 の実機ではまだ確認していないため、
+起動しない場合はアドオンのログを確認してください。ページサイズは Terminal & SSH アドオンで
+`getconf PAGESIZE` を実行すると確認できます（`16384` なら 16 KB）。
 
 ## インストール
 
