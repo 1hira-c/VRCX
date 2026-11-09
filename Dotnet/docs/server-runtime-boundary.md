@@ -48,6 +48,20 @@ run Electron as a non-root user under Xvfb; it must not publish a debugging port
 The server runtime database is not the desktop VRCX database. Import is a one-time,
 filtered operation into this dedicated directory.
 
+History ownership is separate from VRChat authentication. A fixed
+`vrcx_web_data_owner` record is derived from the validated snapshot account and
+matching imported tables, then updated only by the original renderer's completed
+login flow. Logout clears its usual session settings while retaining this
+non-secret record. ASP.NET reads it through its read-only connection; it does not
+write to the live runtime database. Existing installations can migrate the original
+non-secret last-account setting into this record through the native SQLite writer.
+
+Before an account-specific history read, the hidden renderer restores an empty
+database context from that trusted record without logging in or creating user
+tables. A native login context always takes precedence, including when a login
+finishes while the metadata read is pending. Global game logs and memos remain
+readable without an account; activity analysis uses the stored owner when available.
+
 ## Control and projection boundary
 
 The browser-facing ASP.NET service must not call the generic Electron/.NET bridge
@@ -69,6 +83,14 @@ Communication with the hidden runtime uses two narrow interfaces:
 Projection code belongs at this boundary. The original Pipeline payloads and VRCX
 domain objects remain intact inside the trusted runtime; allowlisting must not
 discard context before reducers, history, feed, and notification persistence have run.
+
+Notification-only changes use server-owned SQLite revision triggers for the original
+notification tables. A committed insert, update, or delete produces a `data` event
+for `notifications`; the outbox and observed revision advance in one transaction.
+The event carries no notification content. The browser reloads the original
+notification view through its existing resource-revision path. Replacing a browser
+friend snapshot likewise uses the original batch removal path, which resets the
+friend map, sorted sidebar index, and presence counts together.
 
 Entity details use the original `queryRequest` and its cache policies, including
 coalescing concurrent reads. Remote avatar lookups check the worker's persisted

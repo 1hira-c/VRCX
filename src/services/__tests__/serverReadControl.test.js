@@ -53,6 +53,7 @@ vi.mock('../appConfig', () => ({ logWebRequest: vi.fn(), withQueryLog: (work) =>
 vi.mock('../../coordinators/avatarCoordinator', () => ({
     lookupAvatars: (...args) => mocks.lookupAvatars(...args)
 }));
+vi.mock('../serverDataOwner', () => ({ readServerDataOwner: vi.fn().mockResolvedValue(null) }));
 
 vi.mock('../database', () => ({
     database: {

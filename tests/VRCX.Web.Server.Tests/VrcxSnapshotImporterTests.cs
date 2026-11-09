@@ -7,6 +7,7 @@ namespace VRCX.Web.Server.Tests;
 public sealed class VrcxSnapshotImporterTests
 {
     private const string UserPrefix = "usr0123456789abcdef0123456789abcdef";
+    private const string UserId = "usr_01234567-89ab-cdef-0123-456789abcdef";
 
     [Fact]
     public async Task ImportsRowsThatExistOnlyInAnExplicitWalSnapshotAndCleansStaging()
@@ -79,6 +80,53 @@ public sealed class VrcxSnapshotImporterTests
     }
 
     [Fact]
+    public async Task PersistsOnlyAnImportedOwnerThatMatchesImportedUserTables()
+    {
+        using var workspace = new TestWorkspace();
+        var stagedPath = Path.Combine(workspace.StagingDirectory, "owner.sqlite3");
+        await using (var source = await OpenAsync(stagedPath))
+        {
+            await ExecuteAsync(source, $$"""
+                CREATE TABLE configs (`key` TEXT PRIMARY KEY, `value` TEXT);
+                CREATE TABLE {{UserPrefix}}_friend_log_current (
+                    user_id TEXT PRIMARY KEY, display_name TEXT, trust_level TEXT, friend_number INTEGER);
+                INSERT INTO configs VALUES ('config:lastuserloggedin', '{{UserId}}');
+                INSERT INTO {{UserPrefix}}_friend_log_current VALUES ('usr_friend', 'Friend', 'known', 1);
+                """);
+        }
+
+        await workspace.CreateImporter().ImportAndCleanupAsync(new VrcxSnapshotFiles(stagedPath));
+
+        await using var target = await OpenAsync(workspace.RuntimeDatabasePath, SqliteOpenMode.ReadOnly);
+        Assert.Equal(UserId, await ScalarStringAsync(target, "SELECT user_id FROM vrcx_web_data_owner WHERE id = 1;"));
+        Assert.Equal(UserId, await ScalarStringAsync(target, "SELECT value FROM configs WHERE key = 'config:lastuserloggedin';"));
+    }
+
+    [Fact]
+    public async Task DoesNotTreatAnUnmatchedImportedConfigUserAsDataOwner()
+    {
+        using var workspace = new TestWorkspace();
+        var stagedPath = Path.Combine(workspace.StagingDirectory, "unmatched-owner.sqlite3");
+        await using (var source = await OpenAsync(stagedPath))
+        {
+            await ExecuteAsync(source, $$"""
+                CREATE TABLE configs (`key` TEXT PRIMARY KEY, `value` TEXT);
+                CREATE TABLE memos (user_id TEXT PRIMARY KEY, edited_at TEXT, memo TEXT);
+                INSERT INTO configs VALUES ('config:lastuserloggedin', '{{UserId}}');
+                INSERT INTO memos VALUES ('usr_friend', '2026-01-01', 'safe');
+                """);
+        }
+
+        await workspace.CreateImporter().ImportAndCleanupAsync(new VrcxSnapshotFiles(stagedPath));
+
+        await using var target = await OpenAsync(workspace.RuntimeDatabasePath, SqliteOpenMode.ReadOnly);
+        Assert.Equal(0L, await ScalarInt64Async(target, "SELECT COUNT(*) FROM vrcx_web_data_owner;"));
+        Assert.Equal(0L, await ScalarInt64Async(
+            target,
+            "SELECT COUNT(*) FROM configs WHERE key = 'config:lastuserloggedin';"));
+    }
+
+    [Fact]
     public async Task RollsBackEveryTableAndCleansStagingWhenAnyInsertFails()
     {
         using var workspace = new TestWorkspace();
@@ -143,11 +191,11 @@ public sealed class VrcxSnapshotImporterTests
         Assert.Equal(0L, await ScalarInt64Async(
             target,
             "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('cookies', 'admin_credentials', 'auth_sessions', 'browser_tokens');"));
-        Assert.Equal(2L, await ScalarInt64Async(target, "SELECT COUNT(*) FROM configs;"));
+        Assert.Equal(1L, await ScalarInt64Async(target, "SELECT COUNT(*) FROM configs;"));
         Assert.Equal("ja", await ScalarStringAsync(target, "SELECT value FROM configs WHERE key = 'config:vrcx_applanguage';"));
-        Assert.Equal(
-            "usr_01234567-89ab-cdef-0123-456789abcdef",
-            await ScalarStringAsync(target, "SELECT value FROM configs WHERE key = 'config:lastuserloggedin';"));
+        Assert.Equal(0L, await ScalarInt64Async(
+            target,
+            "SELECT COUNT(*) FROM configs WHERE key = 'config:lastuserloggedin';"));
         Assert.Equal(0L, await ScalarInt64Async(
             target,
             "SELECT COUNT(*) FROM configs WHERE lower(key) LIKE '%credential%' OR lower(key) LIKE '%password%' OR lower(key) LIKE '%proxy%' OR lower(key) LIKE '%token%' OR lower(key) LIKE '%apikey%' OR lower(key) LIKE '%endpoint%';"));

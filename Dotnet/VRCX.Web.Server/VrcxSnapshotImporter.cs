@@ -207,6 +207,7 @@ public sealed class VrcxSnapshotImporter : IVrcxSnapshotImporter
         {
             await ValidateIntegrityAsync(source, "snapshot", cancellationToken);
             var tables = await DiscoverSourceTablesAsync(source, cancellationToken);
+            var importedDataOwner = await ReadImportedDataOwnerAsync(source, tables, cancellationToken);
             var snapshotId = await ComputeSnapshotIdAsync(source, tables, cancellationToken);
 
             await using var target = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -244,7 +245,13 @@ public sealed class VrcxSnapshotImporter : IVrcxSnapshotImporter
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     await EnsureTargetTableAsync(target, transaction, table, cancellationToken);
-                    var count = await CopyTableAsync(source, target, transaction, table, cancellationToken);
+                    var count = await CopyTableAsync(
+                        source,
+                        target,
+                        transaction,
+                        table,
+                        includeLastUserLoggedIn: importedDataOwner is not null,
+                        cancellationToken: cancellationToken);
                     totalRows = checked(totalRows + count);
                     if (totalRows > options.MaximumRows)
                     {
@@ -258,6 +265,12 @@ public sealed class VrcxSnapshotImporter : IVrcxSnapshotImporter
                     throw new VrcxSnapshotImportException(
                         "The staged snapshot changed during import. Use a stopped VRCX SQLite/WAL snapshot.");
                 }
+
+                await VrcxDataOwner.SetImportedOwnerAsync(
+                    target,
+                    transaction,
+                    importedDataOwner,
+                    cancellationToken);
 
                 await InsertManifestAsync(
                     target,
@@ -617,6 +630,7 @@ public sealed class VrcxSnapshotImporter : IVrcxSnapshotImporter
         SqliteConnection target,
         SqliteTransaction transaction,
         SourceTable table,
+        bool includeLastUserLoggedIn,
         CancellationToken cancellationToken)
     {
         await using var select = CreateSourceSelect(source, table);
@@ -636,7 +650,7 @@ public sealed class VrcxSnapshotImporter : IVrcxSnapshotImporter
         long rows = 0;
         while (await reader.ReadAsync(cancellationToken))
         {
-            if (table.IsConfigTable && !IsSafeConfigRow(table, reader))
+            if (table.IsConfigTable && !IsSafeConfigRow(table, reader, includeLastUserLoggedIn))
             {
                 continue;
             }
@@ -650,7 +664,10 @@ public sealed class VrcxSnapshotImporter : IVrcxSnapshotImporter
         return rows;
     }
 
-    private static bool IsSafeConfigRow(SourceTable table, SqliteDataReader reader)
+    private static bool IsSafeConfigRow(
+        SourceTable table,
+        SqliteDataReader reader,
+        bool includeLastUserLoggedIn)
     {
         var keyIndex = FindColumnIndex(table.Columns, "key");
         var valueIndex = FindColumnIndex(table.Columns, "value");
@@ -665,13 +682,60 @@ public sealed class VrcxSnapshotImporter : IVrcxSnapshotImporter
             return true;
         }
 
+        if (!includeLastUserLoggedIn)
+        {
+            return false;
+        }
+
         if (reader.IsDBNull(valueIndex) || reader.GetValue(valueIndex) is not string value)
         {
             return false;
         }
-        return value is { Length: > 4 and <= 128 } &&
-            value.StartsWith("usr_", StringComparison.Ordinal) &&
-            value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_');
+        return VrcxDataOwner.IsSafeUserId(value);
+    }
+
+    private static async Task<string?> ReadImportedDataOwnerAsync(
+        SqliteConnection source,
+        IReadOnlyList<SourceTable> tables,
+        CancellationToken cancellationToken)
+    {
+        var configs = tables.SingleOrDefault(table => table.IsConfigTable && table.Name == "configs");
+        if (configs is null)
+        {
+            return null;
+        }
+
+        var values = new List<string>();
+        await using (var command = source.CreateCommand())
+        {
+            command.CommandText = $"SELECT {QuoteIdentifier("value")} FROM {QuoteIdentifier(configs.Name)} " +
+                                  $"WHERE lower({QuoteIdentifier("key")}) = @key ORDER BY {QuoteIdentifier("key")};";
+            command.Parameters.AddWithValue("@key", LastUserLoggedInConfigKey);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (reader.GetValue(0) is not string userId || !VrcxDataOwner.IsSafeUserId(userId))
+                {
+                    return null;
+                }
+                values.Add(userId);
+            }
+        }
+
+        // Multiple case variants are not emitted by the original repository.
+        // Reject ambiguity rather than treating an imported value as a selector.
+        if (values.Count != 1)
+        {
+            return null;
+        }
+
+        var prefix = VrcxDataOwner.ToUserPrefix(values[0]);
+        return prefix is not null && tables.Any(table =>
+            !table.IsConfigTable &&
+            UserTablePattern.IsMatch(table.Name) &&
+            table.Name.StartsWith(prefix + "_", StringComparison.Ordinal))
+            ? values[0]
+            : null;
     }
 
     private static int FindColumnIndex(IReadOnlyList<ColumnSchema> columns, string name)

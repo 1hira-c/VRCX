@@ -4,11 +4,13 @@ import { watchState } from './watchState';
 import { syncTelemetry } from './syncTelemetry';
 import { wsState } from './websocket';
 import { buildServerProjectionSnapshot } from './serverProjection';
+import { dbVars } from './database';
 
 import * as workerTimers from 'worker-timers';
 
 const PUBLISH_INTERVAL_MS = 10_000;
 const OUTBOX_LIMIT = 5_000;
+const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const schemaOperations = [
     {
@@ -110,6 +112,18 @@ const schemaOperations = [
         )`
     },
     {
+        sql: `CREATE TABLE IF NOT EXISTS vrcx_web_notification_revision (
+            user_prefix TEXT PRIMARY KEY,
+            revision INTEGER NOT NULL DEFAULT 0
+        )`
+    },
+    {
+        sql: `CREATE TABLE IF NOT EXISTS vrcx_web_notification_projection_state (
+            user_prefix TEXT PRIMARY KEY,
+            observed_revision INTEGER NOT NULL DEFAULT -1
+        )`
+    },
+    {
         sql: `INSERT OR IGNORE INTO vrcx_web_projection_state (
             id, current_user_id, sync_state, pipeline_state
         ) VALUES (1, '', 'starting', 'disconnected')`
@@ -173,6 +187,79 @@ function addOutboxOperation(operations, occurredAt, type, resource, payload) {
             '@resource': resource,
             '@payload_json': JSON.stringify(payload)
         }
+    });
+}
+
+function getNotificationUserPrefix() {
+    const prefix = dbVars.userPrefix;
+    return typeof prefix === 'string' && SQL_IDENTIFIER.test(prefix) ? prefix : null;
+}
+
+function userPrefixFor(userId) {
+    if (typeof userId !== 'string' || !userId) return null;
+    let prefix = userId.replaceAll('-', '').replaceAll('_', '');
+    if (/^\d/.test(prefix)) prefix = `_${prefix}`;
+    return SQL_IDENTIFIER.test(prefix) ? prefix : null;
+}
+
+function addNotificationRevisionTriggerOperations(operations, userPrefix) {
+    const tables = ['notifications', 'notifications_v2'];
+    const mutations = ['insert', 'update', 'delete'];
+    operations.push({
+        sql: `INSERT OR IGNORE INTO vrcx_web_notification_revision (user_prefix, revision)
+            VALUES (@user_prefix, 0)`,
+        args: { '@user_prefix': userPrefix }
+    });
+
+    for (const table of tables) {
+        for (const mutation of mutations) {
+            const triggerName = `vrcx_web_${userPrefix}_${table}_${mutation}_revision`;
+            operations.push({
+                // userPrefix is constrained by SQL_IDENTIFIER before this point.
+                sql: `CREATE TRIGGER IF NOT EXISTS ${triggerName}
+                    AFTER ${mutation.toUpperCase()} ON ${userPrefix}_${table}
+                    BEGIN
+                        UPDATE vrcx_web_notification_revision
+                        SET revision = revision + 1
+                        WHERE user_prefix = '${userPrefix}';
+                    END`
+            });
+        }
+    }
+}
+
+function addNotificationInvalidationOperations(operations, occurredAt, userPrefix, emitInvalidation) {
+    // The trigger revision changes inside VRCX's original notification-write
+    // transaction. This transaction only emits after that committed revision is
+    // visible, without placing notification data in the event outbox.
+    if (emitInvalidation) {
+        operations.push({
+            sql: `INSERT INTO vrcx_web_event_outbox (occurred_at, type, resource, payload_json)
+                SELECT @occurred_at, @type, @resource, @payload_json
+                FROM vrcx_web_notification_revision AS revision
+                LEFT JOIN vrcx_web_notification_projection_state AS state
+                    ON state.user_prefix = revision.user_prefix
+                WHERE revision.user_prefix = @user_prefix
+                    AND COALESCE(state.observed_revision, -1) <> revision.revision`,
+            args: {
+                '@occurred_at': occurredAt,
+                '@type': 'data',
+                '@resource': 'notifications',
+                '@payload_json': '{}',
+                '@user_prefix': userPrefix
+            }
+        });
+    }
+    operations.push({
+        sql: `INSERT INTO vrcx_web_notification_projection_state (user_prefix, observed_revision)
+            SELECT revision.user_prefix, revision.revision
+            FROM vrcx_web_notification_revision AS revision
+            LEFT JOIN vrcx_web_notification_projection_state AS state
+                ON state.user_prefix = revision.user_prefix
+            WHERE revision.user_prefix = @user_prefix
+                AND COALESCE(state.observed_revision, -1) <> revision.revision
+            ON CONFLICT(user_prefix) DO UPDATE SET observed_revision = excluded.observed_revision`,
+        args: { '@user_prefix': userPrefix }
     });
 }
 
@@ -346,8 +433,51 @@ let lastDataFingerprint = null;
 let lastFavoriteFingerprint = null;
 let lastStatusSignature = null;
 let lastPipelineSignature = null;
+let notificationRevisionTriggerPrefix = null;
+
+async function getNotificationTables(userPrefix) {
+    const tableNames = new Set();
+    const legacy = `${userPrefix}_notifications`;
+    const v2 = `${userPrefix}_notifications_v2`;
+    await sqliteService.execute(
+        (row) => {
+            const tableName = row[0];
+            if (tableName === legacy) tableNames.add('notifications');
+            if (tableName === v2) tableNames.add('notifications_v2');
+        },
+        `SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name IN ('${legacy}', '${v2}')`
+    );
+    return [...tableNames];
+}
+
+async function ensureNotificationRevisionTriggers() {
+    const userPrefix = getNotificationUserPrefix();
+    if (!userPrefix) {
+        return null;
+    }
+
+    if (userPrefix === notificationRevisionTriggerPrefix) {
+        return userPrefix;
+    }
+    const tables = await getNotificationTables(userPrefix);
+    // VRCX initializes both notification tables together. Waiting for the pair
+    // prevents a partial imported profile from being marked observed before its
+    // v2 table has been created.
+    if (tables.length !== 2) {
+        return null;
+    }
+
+    /** @type {{ sql: string; args?: Record<string, unknown> }[]} */
+    const operations = [];
+    addNotificationRevisionTriggerOperations(operations, userPrefix);
+    await sqliteService.executeTransaction(operations);
+    notificationRevisionTriggerPrefix = userPrefix;
+    return notificationRevisionTriggerPrefix;
+}
 
 async function publish(stores) {
+    const notificationUserPrefix = await ensureNotificationRevisionTriggers();
     const now = new Date().toJSON();
     const snapshot = buildServerProjectionSnapshot(stores, now);
     const sync = getSyncView(stores);
@@ -372,6 +502,8 @@ async function publish(stores) {
     const dataChanged = canPublishDomainSnapshot && snapshot.fingerprint !== lastDataFingerprint;
     const canPublishFavoriteSnapshot = canPublishDomainSnapshot && watchState.isFavoritesLoaded;
     const favoritesChanged = canPublishFavoriteSnapshot && snapshot.favoriteFingerprint !== lastFavoriteFingerprint;
+    const canPublishNotificationInvalidation =
+        canPublishDomainSnapshot && notificationUserPrefix === userPrefixFor(snapshot.currentUserId);
     /** @type {{ sql: string; args?: Record<string, unknown> }[]} */
     const operations = [createStateOperation(snapshot.currentUserId, sync, pipeline)];
 
@@ -393,6 +525,12 @@ async function publish(stores) {
             favorites: snapshot.favorites?.length ?? 0,
             groups: snapshot.favoriteGroups?.length ?? 0
         });
+    }
+    if (canPublishNotificationInvalidation) {
+        // A snapshot event reloads notifications as part of refreshAll, so it is
+        // the only case where the initial revision observation needs no second
+        // resource event in the same transaction.
+        addNotificationInvalidationOperations(operations, now, notificationUserPrefix, !dataChanged);
     }
     if (statusSignature !== lastStatusSignature) {
         addOutboxOperation(operations, now, 'status', 'status', {

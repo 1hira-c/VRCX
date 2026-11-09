@@ -75,7 +75,14 @@
             const users = await webDatabase.getWebFriends();
             if (!active) return;
 
-            friendStore.friends.clear();
+            // Use VRCX's batch removal path so its sorted sidebar index and
+            // presence-derived lists are cleared together with the friend Map.
+            friendStore.refreshFriendsStatus({
+                friends: [],
+                offlineFriends: [],
+                activeFriends: [],
+                onlineFriends: []
+            });
             friendStore.friendLog.clear();
             userStore.clearCachedUsers();
 

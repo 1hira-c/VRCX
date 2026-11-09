@@ -28,6 +28,25 @@ const dbVars = {
     searchTableSize: 5000
 };
 
+function setUserContext(userId) {
+    dbVars.userId = userId;
+    dbVars.userPrefix = userId.replaceAll('-', '').replaceAll('_', '');
+    // Fix escape, add underscore if prefix starts with a number
+    if (dbVars.userPrefix.match(/^\d/)) {
+        dbVars.userPrefix = '_' + dbVars.userPrefix;
+    }
+}
+
+function isTrustedUserId(userId) {
+    return (
+        typeof userId === 'string' &&
+        userId.length > 4 &&
+        userId.length <= 128 &&
+        userId.startsWith('usr_') &&
+        /^[A-Za-z0-9_-]+$/.test(userId)
+    );
+}
+
 const desktopDatabase = {
     ...feed,
     ...activityV2,
@@ -56,13 +75,18 @@ const desktopDatabase = {
         dbVars.searchTableSize = limit;
     },
 
-    async initUserTables(userId) {
-        dbVars.userId = userId;
-        dbVars.userPrefix = userId.replaceAll('-', '').replaceAll('_', '');
-        // Fix escape, add underscore if prefix starts with a number
-        if (dbVars.userPrefix.match(/^\d/)) {
-            dbVars.userPrefix = '_' + dbVars.userPrefix;
+    // Read-only server history restores only a validated, durable owner. It
+    // deliberately does not create user tables or alter normal desktop login.
+    setReadOnlyDataOwner(userId) {
+        if (!isTrustedUserId(userId)) {
+            return false;
         }
+        setUserContext(userId);
+        return true;
+    },
+
+    async initUserTables(userId) {
+        setUserContext(userId);
         await sqliteService.executeNonQuery(
             `CREATE TABLE IF NOT EXISTS ${dbVars.userPrefix}_feed_gps (id INTEGER PRIMARY KEY, created_at TEXT, user_id TEXT, display_name TEXT, location TEXT, world_name TEXT, previous_location TEXT, time INTEGER, group_name TEXT)`
         );

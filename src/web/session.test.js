@@ -372,6 +372,21 @@ describe('webSession', () => {
         expect(webSession.state.resourceRevisions.friends).toBeGreaterThan(revision);
     });
 
+    it('reloads only notifications when its committed-data invalidation arrives over SSE', async () => {
+        await webSession.initialize();
+        const stream = MockEventSource.streams[0];
+        const notificationCalls = webApi.getNotifications.mock.calls.length;
+        const friendCalls = webApi.getFriends.mock.calls.length;
+        const revision = webSession.state.resourceRevisions.notifications;
+
+        stream.emit('data', JSON.stringify({ resource: 'notifications' }));
+        await flush();
+
+        expect(webApi.getNotifications.mock.calls.length).toBeGreaterThan(notificationCalls);
+        expect(webApi.getFriends).toHaveBeenCalledTimes(friendCalls);
+        expect(webSession.state.resourceRevisions.notifications).toBeGreaterThan(revision);
+    });
+
     it('refreshes every fixed read when the projection publisher emits the snapshot resource', async () => {
         await webSession.initialize();
         const stream = MockEventSource.streams[0];

@@ -23,6 +23,7 @@ import { useUserStore } from './user';
 import { useVrcxStore } from './vrcx';
 import { watchState } from '../services/watchState';
 import { runtimeCapabilities } from '../services/runtimeCapabilities';
+import { recordAuthenticatedDataOwner } from '../services/serverDataOwner';
 import { isWebPlatform } from '../web/platform.js';
 import { webSession } from '../web/session';
 
@@ -997,6 +998,12 @@ export const useAuthStore = defineStore('Auth', () => {
             return;
         }
         await database.initUserTables(userStore.currentUser.id);
+        if (runtimeCapabilities.serverMode) {
+            // Persist only the non-secret user identity proven by the native
+            // login response. Logout deliberately leaves this data owner in
+            // place so imported/local history stays browsable without a cookie.
+            await recordAuthenticatedDataOwner(userStore.currentUser.id);
+        }
         if (runtimeCapabilities.desktopIntegration) {
             advancedSettingsStore.runAvatarAutoCleanup(userStore.currentUser.id);
         }

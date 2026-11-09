@@ -157,6 +157,29 @@ public sealed class VrcxReadStoreTests
     }
 
     [Fact]
+    public async Task DurableDataOwnerSurvivesOriginalLogoutRemovingLastUserConfig()
+    {
+        await using var fixture = await ReadStoreFixture.CreateAsync();
+        await fixture.ExecuteAsync("""
+            CREATE TABLE vrcx_web_data_owner (
+                id INTEGER PRIMARY KEY CHECK (id = 1), user_id TEXT NOT NULL, imported_at TEXT NOT NULL
+            );
+            INSERT INTO vrcx_web_data_owner VALUES (1, 'usr_owner', '2026-11-09T00:00:00Z');
+            DELETE FROM configs WHERE key = 'config:lastuserloggedin';
+            UPDATE vrcx_web_projection_state SET current_user_id = NULL WHERE id = 1;
+            UPDATE usrowner_notifications SET receiver_user_id = NULL WHERE id = 'not_1';
+            """);
+
+        var status = await fixture.Store.GetStatusAsync();
+        var notifications = await fixture.Store.GetNotificationsAsync(0, 20);
+
+        Assert.True(status.Configured);
+        Assert.Equal("usr_owner", status.CurrentUserId);
+        Assert.Equal(1, status.Counts.Notifications);
+        Assert.Equal("usr_owner", Assert.Single(notifications.Items).Payload.GetProperty("receiverUserId").GetString());
+    }
+
+    [Fact]
     public async Task MissingDatabaseReturnsAnExplicitUnconfiguredState()
     {
         var path = Path.Combine(Path.GetTempPath(), "vrcx-web-read-missing", Guid.NewGuid().ToString("N"), "VRCX.sqlite3");

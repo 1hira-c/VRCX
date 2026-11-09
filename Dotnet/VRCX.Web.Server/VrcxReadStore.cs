@@ -26,6 +26,7 @@ public sealed partial class VrcxReadStore(VrcxReadModelOptions options)
         }
 
         var prefix = await GetUserPrefixAsync(connection, cancellationToken);
+        var storedDataOwnerId = await VrcxDataOwner.GetUserIdAsync(connection, cancellationToken);
         var configured = prefix is not null;
         var counts = configured
             ? await GetCountsAsync(connection, prefix!, cancellationToken)
@@ -46,6 +47,7 @@ public sealed partial class VrcxReadStore(VrcxReadModelOptions options)
             {
                 var lastSuccess = ReadNullableDate(reader, 1);
                 var syncState = ReadNullableString(reader, 0) ?? (configured ? "starting" : "not_configured");
+                var projectionCurrentUserId = ReadNullableString(reader, 11);
                 return new ServerStatus(
                     configured,
                     !configured || syncState == "requires_authentication",
@@ -64,7 +66,9 @@ public sealed partial class VrcxReadStore(VrcxReadModelOptions options)
                         ReadNullableDate(reader, 9),
                         ReadNullableString(reader, 10)),
                     counts,
-                    ReadNullableString(reader, 11));
+                    string.IsNullOrWhiteSpace(projectionCurrentUserId)
+                        ? storedDataOwnerId
+                        : projectionCurrentUserId);
             }
         }
 
@@ -74,7 +78,7 @@ public sealed partial class VrcxReadStore(VrcxReadModelOptions options)
             new SyncView(configured ? "starting" : "not_configured", null, null, null, null, true),
             new PipelineView("disconnected", null, null, null, null, null),
             counts,
-            null);
+            storedDataOwnerId);
     }
 
     public async Task<PageResult<FriendRecord>> GetFriendsAsync(
@@ -337,22 +341,7 @@ public sealed partial class VrcxReadStore(VrcxReadModelOptions options)
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
-        if (!await TableExistsAsync(connection, "configs", cancellationToken))
-        {
-            return null;
-        }
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT value FROM configs WHERE key = 'config:lastuserloggedin';";
-        var userId = await command.ExecuteScalarAsync(cancellationToken) as string;
-        if (!IsSafeEntityId(userId) || !userId!.StartsWith("usr_", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var prefix = userId.Replace("-", string.Empty, StringComparison.Ordinal)
-            .Replace("_", string.Empty, StringComparison.Ordinal);
-        return prefix.Length > 0 && char.IsDigit(prefix[0]) ? $"_{prefix}" : prefix;
+        return await VrcxDataOwner.GetUserPrefixAsync(connection, cancellationToken);
     }
 
     private static FriendRecord ReadFriendSnapshot(SqliteDataReader reader)

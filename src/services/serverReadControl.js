@@ -1,6 +1,6 @@
 import { groupRequest, queryRequest, userRequest, worldRequest } from '../api';
 import { lookupAvatars } from '../coordinators/avatarCoordinator';
-import { database } from './database';
+import { database, dbVars } from './database';
 import { executeHistoryDatabaseRead, historyDatabaseReadNames } from './serverHistoryReadControl';
 import { entityResource } from './serverEntityResourceControl';
 import {
@@ -10,6 +10,8 @@ import {
     selectWebWorldFields
 } from '../web/entities';
 import { watchState } from './watchState';
+import { runtimeCapabilities } from './runtimeCapabilities';
+import { readServerDataOwner } from './serverDataOwner';
 
 const ENTITY_ID_PREFIXES = Object.freeze({
     user: 'usr_',
@@ -24,6 +26,83 @@ const ENTITY_SELECTORS = Object.freeze({
     avatar: selectWebAvatarFields,
     group: selectWebGroupFields
 });
+
+// These original repository reads interpolate dbVars.userPrefix. Global
+// game-log and memo reads intentionally remain available without an owner.
+const DATABASE_READS_REQUIRING_DATA_OWNER = new Set([
+    'lookupFeedDatabase',
+    'searchFeedDatabase',
+    'getAllUserStats',
+    'getFriendLogHistory',
+    'getFriendLogHistoryForUserId',
+    'getHotWorlds',
+    'getHotWorldFriendDetail',
+    'getMutualGraphSnapshot',
+    'getMutualGraphMeta'
+]);
+
+// These use global game-log tables, but also filter self activity with
+// dbVars.userId. Restore an available owner for correct analytics; without
+// one, preserve their global-read behavior instead of returning 503.
+const DATABASE_READS_WITH_OPTIONAL_DATA_OWNER = new Set(['getDateOfInstanceActivity', 'getInstanceActivity']);
+
+function isTrustedUserId(userId) {
+    return (
+        typeof userId === 'string' &&
+        userId.length > 4 &&
+        userId.length <= 128 &&
+        userId.startsWith('usr_') &&
+        /^[A-Za-z0-9_-]+$/.test(userId)
+    );
+}
+
+async function prepareDatabaseReadContext(stores, name) {
+    const requiresDataOwner = DATABASE_READS_REQUIRING_DATA_OWNER.has(name);
+    const usesOptionalDataOwner = DATABASE_READS_WITH_OPTIONAL_DATA_OWNER.has(name);
+    if (!runtimeCapabilities.serverMode || (!requiresDataOwner && !usesOptionalDataOwner)) {
+        return true;
+    }
+
+    // A live authenticated session is authoritative. In normal operation
+    // loginComplete already initialized this exact context; the fallback is a
+    // defensive repair for an interrupted renderer state, never imported A.
+    const restoreAuthenticatedContext = () => {
+        if (!watchState.isLoggedIn) {
+            return null;
+        }
+        const activeUserId = stores.user.currentUser?.id;
+        if (!isTrustedUserId(activeUserId)) {
+            return false;
+        }
+        if (dbVars.userId !== activeUserId || !dbVars.userPrefix) {
+            return database.setReadOnlyDataOwner(activeUserId) === true;
+        }
+        return true;
+    };
+
+    const activeContext = restoreAuthenticatedContext();
+    if (activeContext !== null) return activeContext;
+
+    // Do not replace a previously initialized native context. This is what
+    // keeps a just-authenticated B session from being reset to imported A.
+    if (dbVars.userPrefix) {
+        return true;
+    }
+
+    const storedUserId = await readServerDataOwner();
+
+    // The metadata read is asynchronous. A native login can complete while it
+    // is in flight, so re-check before applying imported context and retain B.
+    const completedActiveContext = restoreAuthenticatedContext();
+    if (completedActiveContext !== null) return completedActiveContext;
+    if (dbVars.userPrefix) {
+        return true;
+    }
+    if (storedUserId !== null) {
+        return database.setReadOnlyDataOwner(storedUserId) === true;
+    }
+    return !requiresDataOwner;
+}
 
 function asObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -262,6 +341,9 @@ function serializeMutualMeta(meta) {
  */
 async function databaseRead(stores, payload) {
     try {
+        if (!(await prepareDatabaseReadContext(stores, payload.name))) {
+            return databaseReadFailure('data_owner_unavailable');
+        }
         if (historyDatabaseReadNames.has(payload.name)) {
             return databaseReadSuccess(await executeHistoryDatabaseRead(stores, database, payload));
         }

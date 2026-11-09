@@ -436,12 +436,7 @@ public sealed partial class VrcxReadStore
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT value FROM configs WHERE key = 'config:lastuserloggedin';";
-        var userId = await command.ExecuteScalarAsync(cancellationToken) as string;
-        return IsSafeEntityId(userId) && userId!.StartsWith("usr_", StringComparison.Ordinal)
-            ? userId
-            : null;
+        return await VrcxDataOwner.GetUserIdAsync(connection, cancellationToken);
     }
 
     private static JsonElement SelectNotificationScalars(

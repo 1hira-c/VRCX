@@ -82,9 +82,25 @@ const feed = [
 ];
 const gameLog = [{ rowId: 1, created_at: now, type: 'Location', location, worldId: world, worldName: 'Smoke World' }];
 const page = (items) => ({ items, total: items.length, offset: 0, limit: 200 });
+const invite = (id, message, sender = 'Smoke Friend') => ({
+    id,
+    type: 'invite',
+    createdAt: now,
+    message,
+    seen: false,
+    payload: {
+        senderUserId: friend,
+        senderUsername: sender,
+        receiverUserId: me,
+        receiverUsername: 'Smoke Viewer',
+        details: { worldId: world, worldName: 'Smoke World', location, inviteMessage: message }
+    }
+});
 
 function fixture(url, state) {
     const { authenticated, stale } = state;
+    const hasProjection = authenticated || state.retainProjection;
+    const friendUsers = state.friendUsers ?? [users[1]];
     const route = url.pathname.slice('/api/v1'.length);
     requests.add(route);
     requestCounts.set(route, (requestCounts.get(route) || 0) + 1);
@@ -100,23 +116,25 @@ function fixture(url, state) {
             : { ok: false, status: 'requires_authentication', currentUser: null };
     if (route === '/status')
         return {
-            configured: authenticated,
+            configured: Boolean(hasProjection),
             authenticationRequired: !authenticated,
-            currentUserId: authenticated ? me : null,
+            currentUserId: hasProjection ? me : null,
             sync: {
                 state: authenticated ? (stale ? 'degraded' : 'healthy') : 'requires_authentication',
                 stale: stale || !authenticated,
-                lastSuccessAt: authenticated ? now : null
+                lastSuccessAt: hasProjection ? now : null
             },
             pipeline: { state: authenticated ? 'connected' : 'disconnected', connected: authenticated },
-            counts: authenticated ? { friends: 1, feed: 1, notifications: 1, gameLog: 1 } : {}
+            counts: hasProjection
+                ? { friends: friendUsers.length, feed: 1, notifications: state.notifications?.length ?? 1, gameLog: 1 }
+                : {}
         };
     if (
-        !authenticated &&
+        !hasProjection &&
         ['/friends', '/feed', '/notifications', '/favorites', '/history/game-log', '/history/friends'].includes(route)
     )
         return page([]);
-    if (route === '/friends') return page([{ ...users[1], raw: users[1] }]);
+    if (route === '/friends') return page(friendUsers.map((user) => ({ ...user, raw: user })));
     if (route.startsWith('/users/')) {
         const user = users.find((item) => route === `/users/${item.id}`);
         if (user) return { id: user.id, type: 'user', name: user.displayName, payload: user };
@@ -144,23 +162,7 @@ function fixture(url, state) {
             { id: 1, kind: 'gps', createdAt: now, userId: friend, displayName: 'Smoke Friend', payload: feed[0] }
         ]);
     if (route === '/history/game-log') return page([{ id: 1, kind: 'location', createdAt: now, payload: gameLog[0] }]);
-    if (route === '/notifications')
-        return page([
-            {
-                id: 'smoke-invite',
-                type: 'invite',
-                createdAt: now,
-                message: 'Join Smoke World',
-                seen: false,
-                payload: {
-                    senderUserId: friend,
-                    senderUsername: 'Smoke Friend',
-                    receiverUserId: me,
-                    receiverUsername: 'Smoke Viewer',
-                    details: { worldId: world, worldName: 'Smoke World', location, inviteMessage: 'Join Smoke World' }
-                }
-            }
-        ]);
+    if (route === '/notifications') return page(state.notifications ?? [invite('smoke-invite', 'Join Smoke World')]);
     if (route === '/favorites' || route === '/history/friends' || route === '/search') return page([]);
     if (route === '/favorites/groups') return { ready: true, items: [] };
     if (route === '/analytics/summary') return {};
@@ -203,6 +205,11 @@ async function verifyTls() {
 }
 
 async function startFixtureServer(state) {
+    state.events = new Set();
+    state.emitEvent = (name, payload) => {
+        assert.ok(state.events.size > 0, 'Fixture EventSource is not connected');
+        for (const stream of state.events) stream.write(`event: ${name}\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
     const staticRoot = process.env.VRCX_SMOKE_STATIC_ROOT
         ? await fs.realpath(process.env.VRCX_SMOKE_STATIC_ROOT)
         : null;
@@ -296,10 +303,14 @@ async function startFixtureServer(state) {
                 response.setHeader('Cache-Control', 'no-store');
                 if (payload?.eventStream) {
                     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+                    state.events.add(response);
                     const sendStatus = () => response.write('event: status\ndata: {}\n\n');
                     sendStatus();
                     const timer = setInterval(sendStatus, 1000);
-                    response.on('close', () => clearInterval(timer));
+                    response.on('close', () => {
+                        clearInterval(timer);
+                        state.events.delete(response);
+                    });
                     return;
                 }
                 const body = JSON.stringify(statusFailure?.body || payload);
@@ -708,6 +719,79 @@ app.whenReady()
             'mobile Feed selection closes navigation sheet'
         );
         await checkpoint(fixtureWindow, 'fixture-mobile-feed');
+        fixtureWindow.destroy();
+
+        // Use a separate window so live resource replacements cannot disturb
+        // the route, mobile, and negative-status scenarios above.
+        const updates = await createWindow('resource-updates', fingerprint, true, true, { retainProjection: true });
+        await bounded(updates.loadURL(new URL('#/feed', updates.smokeUrl).href), 'load live resource fixtures');
+        await waitFor(
+            updates,
+            `location.hash === '#/feed' && Boolean(document.querySelector('#x-app .feed table')?.innerText.includes('Smoke World'))`,
+            'resource fixture bootstrap completes on Feed'
+        );
+        await evaluate(updates, 'location.hash = "/notification"');
+        await waitFor(
+            updates,
+            `(() => {
+            const aside = document.querySelector('.x-aside-container');
+            const table = document.querySelector('.x-container table');
+            return location.hash === '#/notification' && aside?.innerText.includes('Smoke Friend') && aside.querySelector('.sidebar-tab-count')?.textContent.trim() === '(1/1)' && table?.innerText.includes('Join Smoke World');
+        })()`,
+            'initial friend presence and invite rows'
+        );
+
+        updates.smokeFixtureState.friendUsers = [];
+        updates.smokeFixtureState.emitEvent('data', { resource: 'friends' });
+        await waitFor(
+            updates,
+            `(() => {
+            const aside = document.querySelector('.x-aside-container');
+            return aside?.querySelector('.sidebar-tab-count')?.textContent.trim() === '(0/0)' && !aside.innerText.includes('Smoke Friend');
+        })()`,
+            'SSE friend removal clears indexed sidebar and online count'
+        );
+        await checkpoint(updates, 'fixture-sse-friend-removal');
+
+        updates.smokeFixtureState.notifications = [
+            invite('smoke-invite', 'Join Smoke World'),
+            invite('smoke-live-invite', 'SSE fresh invite', 'SSE Invite Sender')
+        ];
+        updates.smokeFixtureState.emitEvent('data', { resource: 'notifications' });
+        await waitFor(
+            updates,
+            `(() => {
+            const text = document.querySelector('.x-container table')?.innerText || '';
+            return location.hash === '#/notification' && text.includes('SSE fresh invite') && text.includes('SSE Invite Sender') && text.includes('Smoke World');
+        })()`,
+            'SSE notification appears with sender and destination in the open original view'
+        );
+        await checkpoint(updates, 'fixture-sse-new-invite');
+
+        // Only the VRChat session expires; the administrator's browser session
+        // and stored projection remain authorized for fixed history reads.
+        updates.smokeFixtureState.authenticated = false;
+        updates.smokeFixtureState.emitEvent('status', {});
+        await waitFor(
+            updates,
+            `document.querySelector('[data-testid="web-sync-status"]')?.getAttribute('data-sync-state') === 'requires_authentication' && document.body.innerText.includes('Reauthentication required')`,
+            'VRChat expiry is reported while the saved view stays mounted'
+        );
+        assert.equal(await evaluate(updates, 'location.hash'), '#/notification');
+        assert.ok(
+            await evaluate(
+                updates,
+                `document.querySelector('.x-container table')?.innerText.includes('SSE fresh invite')`
+            ),
+            'VRChat expiry discarded saved notifications'
+        );
+        await evaluate(updates, 'location.hash = "/game-log"');
+        await waitFor(
+            updates,
+            `location.hash === '#/game-log' && Boolean(document.querySelector('.x-container table')?.innerText.includes('Smoke World')) && !document.querySelector('#login-form')`,
+            'stored game log remains browsable after VRChat expiry'
+        );
+        await checkpoint(updates, 'fixture-retained-history-after-vrchat-expiry');
         assert.deepEqual(failures, [], 'Console errors or unexpected fixture API calls');
         await fs.writeFile(
             path.join(output, 'report.json'),
@@ -733,7 +817,7 @@ app.whenReady()
                 output
             })
         );
-        fixtureWindow.destroy();
+        updates.destroy();
         clearTimeout(overallTimeout);
         app.exit(0);
     })

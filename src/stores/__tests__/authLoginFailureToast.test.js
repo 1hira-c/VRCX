@@ -165,6 +165,9 @@ vi.mock('../../services/watchState', () => ({
 vi.mock('../../services/config', () => ({
     default: mocks.configRepository
 }));
+vi.mock('../../services/serverDataOwner', () => ({
+    recordAuthenticatedDataOwner: vi.fn().mockResolvedValue(true)
+}));
 
 vi.mock('../../services/websocket', () => ({
     initWebsocket: (...args) => mocks.initWebsocket(...args),
