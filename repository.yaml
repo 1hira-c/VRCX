@@ -1,0 +1,5 @@
+# Home Assistant add-on repository manifest.
+# Add this repository in Home Assistant: Settings -> Add-ons -> Add-on Store -> Repositories.
+name: VRCX Web (1hira-c fork)
+url: https://github.com/1hira-c/VRCX
+maintainer: 1hira-c

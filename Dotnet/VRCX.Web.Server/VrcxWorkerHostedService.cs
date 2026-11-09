@@ -18,6 +18,12 @@ public sealed class VrcxWorkerProcessOptions
 
     public string DataDirectory { get; set; } = "/data/runtime";
 
+    /// <summary>
+    /// Makes Chromium use /tmp instead of /dev/shm. Hosts that cannot enlarge the container's
+    /// 64 MB /dev/shm (for example Home Assistant add-ons) need this to avoid renderer crashes.
+    /// </summary>
+    public bool DisableDevShmUsage { get; set; }
+
     public TimeSpan InitialRestartDelay { get; set; } = TimeSpan.FromSeconds(2);
 
     public TimeSpan MaximumRestartDelay { get; set; } = TimeSpan.FromMinutes(1);
@@ -358,6 +364,10 @@ public sealed class VrcxWorkerHostedService(
         startInfo.ArgumentList.Add("--server-mode");
         startInfo.ArgumentList.Add($"--config={configured.DataDirectory}");
         startInfo.ArgumentList.Add("--no-sandbox");
+        if (configured.DisableDevShmUsage)
+        {
+            startInfo.ArgumentList.Add("--disable-dev-shm-usage");
+        }
         startInfo.Environment["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
         startInfo.Environment["NO_AT_BRIDGE"] = "1";
         return new Process { StartInfo = startInfo };

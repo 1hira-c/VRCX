@@ -1,0 +1,22 @@
+configuration:
+  ssl:
+    name: /ssl の証明書を使う
+    description: >-
+      Home Assistant の /ssl フォルダにある certfile/keyfile（Let's Encrypt など）を使います。
+      オフの場合はアドオン内蔵のプライベート CA で証明書を発行します。
+  certfile:
+    name: 証明書ファイル
+    description: /ssl 内の証明書チェーンのファイル名。「/ssl の証明書を使う」がオンのときだけ使われます。
+  keyfile:
+    name: 秘密鍵ファイル
+    description: /ssl 内の秘密鍵のファイル名。「/ssl の証明書を使う」がオンのときだけ使われます。
+  hostnames:
+    name: ホスト名と IP アドレス
+    description: >-
+      ブラウザで VRCX を開くときに入力する名前・IPv4 アドレスをすべて列挙します（例:
+      homeassistant.local、192.168.1.10、Tailscale の名前）。内蔵 CA の証明書に使われます。
+  export_ca:
+    name: CA 証明書をエクスポート
+    description: 内蔵 CA の公開証明書を /share/vrcx/vrcx-local-ca.crt にコピーします。
+network:
+  8443/tcp: VRCX Web (HTTPS)

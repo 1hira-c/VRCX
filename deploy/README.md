@@ -9,6 +9,10 @@ The desktop VRCX database is never mounted or shared. The server owns `/data/run
 The separate `/data/vrcx-server.db` contains only the Web administrator password verifier and
 browser-device sessions.
 
+For Home Assistant OS (for example on a Raspberry Pi 5), use the add-on in
+[`home-assistant/vrcx`](../home-assistant/vrcx/DOCS.md) instead of this Compose stack. It runs the same
+server image in one container with its own TLS front end and generated secrets.
+
 ## Required environment
 
 Docker Engine, Compose v2, OpenSSL, `jq`, and a connected Tailscale node are required. Keep the

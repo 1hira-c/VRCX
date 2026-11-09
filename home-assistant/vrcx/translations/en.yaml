@@ -1,0 +1,22 @@
+configuration:
+  ssl:
+    name: Use certificate from /ssl
+    description: >-
+      Use certfile/keyfile from the Home Assistant /ssl folder (for example Let's Encrypt).
+      When off, the add-on issues its own certificate from a private CA.
+  certfile:
+    name: Certificate file
+    description: Certificate chain file name inside /ssl. Used only when "Use certificate from /ssl" is on.
+  keyfile:
+    name: Private key file
+    description: Private key file name inside /ssl. Used only when "Use certificate from /ssl" is on.
+  hostnames:
+    name: Host names and IP addresses
+    description: >-
+      Every name or IPv4 address you type in the browser to open VRCX (for example
+      homeassistant.local, 192.168.1.10, or the Tailscale name). Used for the built-in certificate.
+  export_ca:
+    name: Export CA certificate
+    description: Copy the public certificate of the built-in CA to /share/vrcx/vrcx-local-ca.crt.
+network:
+  8443/tcp: VRCX Web (HTTPS)

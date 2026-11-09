@@ -1,0 +1,111 @@
+name: Home Assistant add-on image
+
+# Builds the VRCX Web server image natively per architecture, wraps it as the Home Assistant
+# add-on image and publishes ghcr.io/<owner>/vrcx-ha-addon-<arch>:<version>. The version comes
+# from home-assistant/vrcx/config.yaml, which is what the Supervisor pulls.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'ha-addon-v*'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ha-addon-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: Add-on image (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve add-on version and image name
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' home-assistant/vrcx/config.yaml)
+          test -n "$version"
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "ha-addon-v$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match config.yaml version $version" >&2
+            exit 1
+          fi
+          owner=$(tr '[:upper:]' '[:lower:]' <<<"$GITHUB_REPOSITORY_OWNER")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/$owner/vrcx-ha-addon-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build server image
+        run: docker build --platform ${{ matrix.platform }} --tag vrcx-web-native:local .
+
+      - name: Build add-on image
+        run: >-
+          docker build --platform ${{ matrix.platform }}
+          --build-arg VRCX_SERVER_IMAGE=vrcx-web-native:local
+          --build-arg ADDON_VERSION=${{ steps.meta.outputs.version }}
+          --build-arg ADDON_ARCH=${{ matrix.arch }}
+          --tag ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+          --tag ${{ steps.meta.outputs.image }}:latest
+          home-assistant/vrcx
+
+      - name: Smoke test add-on start-up
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}'
+          docker volume create vrcx-addon-ci-data
+          docker run --rm -v vrcx-addon-ci-data:/data alpine sh -c \
+            'printf "%s" "{\"ssl\":false,\"certfile\":\"fullchain.pem\",\"keyfile\":\"privkey.pem\",\"hostnames\":[\"vrcx-ci.local\",\"127.0.0.1\"],\"export_ca\":false}" > /data/options.json'
+          docker run -d --name vrcx-addon-ci --init -p 127.0.0.1:18443:8443 -v vrcx-addon-ci-data:/data "$image"
+          for attempt in {1..60}; do
+            if docker exec vrcx-addon-ci curl -fsS --max-time 2 http://127.0.0.1:18081/control/v1/status >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker cp vrcx-addon-ci:/data/tls/ca.crt "$RUNNER_TEMP/ca.crt"
+          curl --fail --silent --show-error --max-time 10 --cacert "$RUNNER_TEMP/ca.crt" https://127.0.0.1:18443/healthz
+          curl --fail --silent --show-error --max-time 10 --cacert "$RUNNER_TEMP/ca.crt" \
+            --resolve vrcx-ci.local:18443:127.0.0.1 https://vrcx-ci.local:18443/healthz
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' --cacert "$RUNNER_TEMP/ca.crt" \
+            https://127.0.0.1:18443/api/v1/friends)
+          test "$code" = 401
+          docker exec vrcx-addon-ci curl -fsS http://127.0.0.1:18081/control/v1/status
+          docker exec vrcx-addon-ci pgrep -f -- '--disable-dev-shm-usage' >/dev/null
+
+      - name: Diagnose failed smoke test
+        if: failure()
+        run: docker logs vrcx-addon-ci --tail 100 || true
+
+      - name: Remove smoke test container
+        if: always()
+        run: |
+          docker rm -f vrcx-addon-ci || true
+          docker volume rm vrcx-addon-ci-data || true
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push add-on image
+        run: |
+          docker push '${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}'
+          docker push '${{ steps.meta.outputs.image }}:latest'
