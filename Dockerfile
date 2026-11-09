@@ -3,10 +3,14 @@
 FROM node:24-bookworm-slim AS frontend-build
 WORKDIR /workspace
 COPY package.json package-lock.json ./
+# Electron 45+ no longer downloads its binary in postinstall; fetch it explicitly so the worker
+# runtime can be copied from node_modules/electron/dist below.
 RUN --mount=type=secret,id=proxy_ca,required=false \
     set -eu; \
     if [ -s /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
-    npm ci --strict-ssl=true
+    npm ci --strict-ssl=true; \
+    node node_modules/electron/install.js; \
+    test -x node_modules/electron/dist/electron
 COPY Version ./Version
 COPY images ./images
 COPY src ./src
